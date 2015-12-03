@@ -1,5 +1,7 @@
-// Copyright (c) Microsoft. All rights reserved.
-// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+/*
+* Copyright (c) Microsoft. All rights reserved.
+* Licensed under the MIT license. See LICENSE file in the project root for full license information.
+*/
 
 package org.apache.spark.api.csharp
 
@@ -22,8 +24,8 @@ import io.netty.handler.codec.bytes.{ByteArrayDecoder, ByteArrayEncoder}
  * This implementation is identical to RBackend and that can be reused
  * in SparkCLR if the handler is made pluggable
  */
-// Since SparkCLR is a package to Spark and not a part of spark-core it mirrors the implementation of
-// selected parts from RBackend with SparkCLR customizations
+// Since SparkCLR is a package to Spark and not a part of spark-core it mirrors the implementation
+// of selected parts from RBackend with SparkCLR customizations
 class CSharpBackend {
   private[this] var channelFuture: ChannelFuture = null
   private[this] var bootstrap: ServerBootstrap = null
@@ -33,7 +35,8 @@ class CSharpBackend {
     // need at least 3 threads, use 10 here for safety
     bossGroup = new NioEventLoopGroup(10)
     val workerGroup = bossGroup
-    val handler = new CSharpBackendHandler(this) //TODO - work with SparkR devs to make this configurable and reuse RBackend
+    // TODO - work with SparkR devs to make this configurable and reuse RBackend
+    val handler = new CSharpBackendHandler(this)
 
     bootstrap = new ServerBootstrap()
       .group(bossGroup, workerGroup)
@@ -49,7 +52,7 @@ class CSharpBackend {
             // lengthFieldLength = 4
             // lengthAdjustment = 0
             // initialBytesToStrip = 4, i.e. strip out the length field itself
-            //new LengthFieldBasedFrameDecoder(Integer.MAX_VALUE, 0, 4, 0, 4))
+            // new LengthFieldBasedFrameDecoder(Integer.MAX_VALUE, 0, 4, 0, 4))
             new LengthFieldBasedFrameDecoder(Integer.MAX_VALUE, 0, 4, 0, 4))
           .addLast("decoder", new ByteArrayDecoder())
           .addLast("handler", handler)
@@ -80,7 +83,9 @@ class CSharpBackend {
     bootstrap = null
 
     // Send close to CSharp callback server.
+    // scalastyle:off println
     println("Requesting to close all call back sockets.")
+    // scalastyle:on println
     var socket: Socket = null
     do {
       socket = CSharpBackend.callbackSockets.poll()
