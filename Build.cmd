@@ -33,6 +33,7 @@ if NOT EXIST "%SPARKCLR_HOME%\data" mkdir "%SPARKCLR_HOME%\data"
 if NOT EXIST "%SPARKCLR_HOME%\lib" mkdir "%SPARKCLR_HOME%\lib"
 if NOT EXIST "%SPARKCLR_HOME%\samples" mkdir "%SPARKCLR_HOME%\samples"
 if NOT EXIST "%SPARKCLR_HOME%\scripts" mkdir "%SPARKCLR_HOME%\scripts"
+if NOT EXIST "%SPARKCLR_HOME%\shell" mkdir "%SPARKCLR_HOME%\shell"
 
 @echo Assemble SparkCLR Scala components
 pushd "%CMDHOME%\scala"
@@ -100,6 +101,19 @@ popd
 @echo Assemble SparkCLR script components
 pushd "%CMDHOME%\scripts"
 copy /y *.cmd  "%SPARKCLR_HOME%\scripts\"
+popd
+
+@echo Install SparkCLR Shell
+REM TODO: extract the version number of nuget package to be a variable
+nuget install Microsoft.Net.Compilers  -OutputDirectory "%SPARKCLR_HOME%\shell" -Version 1.1.1
+
+REM Not all bits under tools directory are required, might need to remove those unnecessary ones in future
+copy /y "%SPARKCLR_HOME%\shell\Microsoft.Net.Compilers.1.1.1\tools\*" "%SPARKCLR_HOME%\shell\"
+rmdir /q /s "%SPARKCLR_HOME%\shell\Microsoft.Net.Compilers.1.1.1"
+copy /y "%CMDHOME%\csharp\Worker\Microsoft.Spark.CSharp\bin\Release\*" "%SPARKCLR_HOME%\shell\"
+
+pushd "%CMDHOME%\scripts"
+copy /y *.csx  "%SPARKCLR_HOME%\scripts\"
 popd
 
 @echo zip run directory
