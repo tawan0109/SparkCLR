@@ -33,6 +33,7 @@ if NOT EXIST "%SPARKCLR_HOME%\data" mkdir "%SPARKCLR_HOME%\data"
 if NOT EXIST "%SPARKCLR_HOME%\lib" mkdir "%SPARKCLR_HOME%\lib"
 if NOT EXIST "%SPARKCLR_HOME%\samples" mkdir "%SPARKCLR_HOME%\samples"
 if NOT EXIST "%SPARKCLR_HOME%\scripts" mkdir "%SPARKCLR_HOME%\scripts"
+if NOT EXIST "%SPARKCLR_HOME%\shell" mkdir "%SPARKCLR_HOME%\shell"
 
 @echo Assemble SparkCLR Scala components
 pushd "%CMDHOME%\scala"
@@ -100,6 +101,32 @@ popd
 @echo Assemble SparkCLR script components
 pushd "%CMDHOME%\scripts"
 copy /y *.cmd  "%SPARKCLR_HOME%\scripts\"
+popd
+
+@echo Install SparkCLR Shell
+nuget install NuGet.CommandLine -OutputDirectory "%SPARKCLR_HOME%"
+REM TODO: to simplify package install, here uses nightly build, neet to to be replace with stable version in future.
+REM nuget install scriptcs -pre -Source https://www.myget.org/F/scriptcsnightly/api/v3/index.json -OutputDirectory "%SPARKCLR_HOME%"
+
+nuget install scriptcs -pre -OutputDirectory "%SPARKCLR_HOME%"
+
+REM Not all bits under tools directory are required, might need to remove those unnecessary ones in future
+pushd "%SPARKCLR_HOME%\scriptcs*"
+copy tools\scriptcs\* ..\shell
+popd
+
+REM copy /y "%CMDHOME%\csharp\Worker\Microsoft.Spark.CSharp\bin\Release\*" "%SPARKCLR_HOME%\shell\"
+
+xcopy "%CMDHOME%\csharp\Worker\Microsoft.Spark.CSharp\bin\Release\*" "%SPARKCLR_HOME%\shell\"
+
+REM Remove intermediate files
+pushd "%SPARKCLR_HOME%"
+for /d %%G in ("scriptcs*") do rd /s /q "%%~G"
+for /d %%G in ("NuGet.CommandLine*") do rd /s /q "%%~G"
+popd
+
+pushd "%CMDHOME%\scripts"
+copy /y *.csx  "%SPARKCLR_HOME%\scripts\"
 popd
 
 @echo zip run directory
