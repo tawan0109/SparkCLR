@@ -23,19 +23,12 @@ using Razorvine.Pickle.Objects;
 
 namespace Microsoft.Spark.CSharp
 {
-    /// <summary>
-    /// Worker implementation for SparkCLR. The implementation is identical to the 
-    /// worker used in PySpark. The RDD implementation to fork an external process
-    /// and pipe data in and out between JVM & the other runtime is already implemented in PySpark.
-    /// SparkCLR uses the same design and implementation of PythonRDD (CSharpRDD extends PythonRDD).
-    /// So the worker behavior is also the identical between PySpark and SparkCLR.
-    /// </summary>
-    public class Worker
+    internal class SparkCLRAssemblyHandler
     {
-        private static readonly DateTime UnixTimeEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        private static ILoggerService logger;
 
-        static Assembly MyHandler(object source, ResolveEventArgs e)
+        public Assembly[] assemblies;
+
+        public Assembly Handler(object source, ResolveEventArgs e)
         {
             Console.WriteLine("Try to resolve assembly {0}", e.Name);
             if (e.Name.Contains("#"))
@@ -44,7 +37,7 @@ namespace Microsoft.Spark.CSharp
                 {
                     Console.WriteLine("Dlls to match:" + dll);
                 }
-                
+
                 foreach (var dll in Directory.GetFiles(@"d:\temp\dll"))
                 {
                     try
@@ -53,7 +46,7 @@ namespace Microsoft.Spark.CSharp
                         Console.WriteLine("Try to match assembly {0}", dll);
 
                         byte[] bytes = File.ReadAllBytes(dll);
-                        if (bytes == null || bytes.Length == 0)
+                        if (bytes.Length == 0)
                         {
                             Console.WriteLine("Skip empty DLL:" + dll);
                             continue;
@@ -74,6 +67,21 @@ namespace Microsoft.Spark.CSharp
             }
             return null;
         }
+    }
+
+    /// <summary>
+    /// Worker implementation for SparkCLR. The implementation is identical to the 
+    /// worker used in PySpark. The RDD implementation to fork an external process
+    /// and pipe data in and out between JVM & the other runtime is already implemented in PySpark.
+    /// SparkCLR uses the same design and implementation of PythonRDD (CSharpRDD extends PythonRDD).
+    /// So the worker behavior is also the identical between PySpark and SparkCLR.
+    /// </summary>
+    public class Worker
+    {
+        private static readonly DateTime UnixTimeEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        private static ILoggerService logger;
+
+        
 
         /*
         sealed class DeserializationBinder : SerializationBinder
@@ -102,7 +110,8 @@ namespace Microsoft.Spark.CSharp
 
         static void Main(string[] args)
         {
-            AppDomain.CurrentDomain.AssemblyResolve += MyHandler;
+            var assemblyHandler = new SparkCLRAssemblyHandler();
+            AppDomain.CurrentDomain.AssemblyResolve += assemblyHandler.Handler;
 
             // if there exists exe.config file, then use log4net
             if (File.Exists(AppDomain.CurrentDomain.SetupInformation.ConfigurationFile))
@@ -191,8 +200,6 @@ namespace Microsoft.Spark.CSharp
                     logger.LogInfo("command_len: " + lengthOCommandByteArray);
 
                     BinaryFormatter formatter = new BinaryFormatter();
-                    // formatter.AssemblyFormat = System.Runtime.Serialization.Formatters.FormatterAssemblyStyle.Simple;
-                    // formatter.Binder = new DeserializationBinder();
 
                     if (lengthOCommandByteArray > 0)
                     {
@@ -210,6 +217,19 @@ namespace Microsoft.Spark.CSharp
 
                         string serializerMode = SerDe.ReadString(s);
                         logger.LogInfo("Serializer mode: " + serializerMode);
+
+                        string runMode = SerDe.ReadString(s);
+                        logger.LogInfo("Run mode: " + runMode);
+
+                        if (runMode.Equals("shell", StringComparison.InvariantCultureIgnoreCase))
+                        {
+                            int assembliesCount = SerDe.ReadInt(s);
+                            var assemblies = new Assembly[assembliesCount];
+                            for (var i = 0; i < assembliesCount; i++)
+                            {
+                                assemblies[i] = Assembly.Load(SerDe.ReadBytes(s, SerDe.ReadInt(s)));
+                            }
+                        }
 
                         byte[] command = SerDe.ReadBytes(s);
 

@@ -544,22 +544,14 @@ namespace Microsoft.Spark.CSharp.Core
             commandPayloadBytesList.Add(modeBytes);
 
             // run mode
-            /*
             var runMode = Environment.GetEnvironmentVariable("SPARKCLR_RUN_MODE");
             if (string.IsNullOrEmpty(runMode))
             {
                 runMode = "normal";
             }
-            var runModeBytes = Encoding.UTF8.GetBytes(runMode);
-            length = runModeBytes.Length;
-            lengthAsBytes = BitConverter.GetBytes(length);
-            Array.Reverse(lengthAsBytes);
-            commandPayloadBytesList.Add(lengthAsBytes);
-            commandPayloadBytesList.Add(runModeBytes);
-            */
+            AppendRunMode(commandPayloadBytesList, runMode);
 
             // add assembly when run mode is shell
-            /*
             if (runMode.Equals("shell", StringComparison.InvariantCultureIgnoreCase))
             {
                 var dllDir = Environment.GetEnvironmentVariable("SPARKCLR_SHELL_DLL_DIR");
@@ -568,8 +560,8 @@ namespace Microsoft.Spark.CSharp.Core
                     throw new Exception("Env variable 'SPARKCLR_SHELL_DLL_DIR' not set.");
                 }
 
+                AppendAssemblies(commandPayloadBytesList, dllDir);
             }
-            */
 
             // add func
             var funcBytes = stream.ToArray();
@@ -578,6 +570,38 @@ namespace Microsoft.Spark.CSharp.Core
             commandPayloadBytesList.Add(funcBytesLengthAsBytes);
             commandPayloadBytesList.Add(funcBytes);
             return commandPayloadBytesList.SelectMany(byteArray => byteArray).ToArray();
+        }
+
+        internal static void AppendRunMode(List<byte[]> commandPayloadBytesList, string runMode)
+        {
+            var runModeBytes = Encoding.UTF8.GetBytes(runMode);
+            AppendToCommandPayload(commandPayloadBytesList, runModeBytes);
+        }
+
+        internal static void AppendAssemblies(List<byte[]> commandPayloadBytesList, string dllDir)
+        {
+            List<byte[]> payloads = Directory.GetFiles(dllDir).Select(File.ReadAllBytes).Where(bytes => bytes.Length > 0).ToList();
+            AppendToCommandPayload(commandPayloadBytesList, payloads.Count);
+            foreach (var p in payloads)
+            {
+                AppendToCommandPayload(commandPayloadBytesList, p);
+            }
+        }
+
+        internal static void AppendToCommandPayload(List<byte[]> commandPayloadBytesList, int num)
+        {
+            var numAsBytes = BitConverter.GetBytes(num);
+            Array.Reverse(numAsBytes);
+            commandPayloadBytesList.Add(numAsBytes);
+        }
+
+        internal static void AppendToCommandPayload(List<byte[]> commandPayloadBytesList, byte[] bytes)
+        {
+            var length = bytes.Length;
+            var lengthAsBytes = BitConverter.GetBytes(length);
+            Array.Reverse(lengthAsBytes);
+            commandPayloadBytesList.Add(lengthAsBytes);
+            commandPayloadBytesList.Add(bytes);
         }
     }
 }

@@ -1,38 +1,34 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Scripting;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Scripting;
 using Microsoft.Spark.CSharp.Core;
+using Microsoft.Spark.CSharp.Sql;
+using Razorvine.Pickle;
+using Razorvine.Serpent;
 
 namespace Microsoft.Spark.CSharp
 {
-
     public class SparkCLRHost
     {
         public SparkContext sc;
+        public SqlContext SqlContext;
     }
 
     internal class CSharpScriptEngine
     {
-        private static ScriptState<object> _previousState;
-
-        private static int counter = 0;
-
-        private static string dllDirectory = @"d:\temp\dll";
-
+        private static ScriptState<object> previousState;
+        private static int seq = 0;
+        private static string dllDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
         private static SparkCLRHost host;
 
         public static object Execute(string code)
         {
             Script<object> script;
-            if (_previousState == null)
+            if (previousState == null)
             {
                 script = CSharpScript.Create(code, globalsType:typeof(SparkCLRHost)).WithOptions(
                     ScriptOptions.Default
@@ -40,14 +36,15 @@ namespace Microsoft.Spark.CSharp
                     .AddReferences("System.Core")
                     .AddReferences("Microsoft.CSharp")
                     .AddReferences(typeof(SparkContext).Assembly)
-                    );
+                    .AddReferences(typeof(Pickler).Assembly)
+                    .AddReferences(typeof(Parser).Assembly));
 
                 Environment.SetEnvironmentVariable("SPARKCLR_RUN_MODE", "shell");
                 Environment.SetEnvironmentVariable("SPARKCLR_SHELL_DLL_DIR", dllDirectory);
             }
             else
             {
-                script = _previousState.Script.ContinueWith(code);
+                script = previousState.Script.ContinueWith(code);
             }
 
             // diagnostic
@@ -70,35 +67,35 @@ namespace Microsoft.Spark.CSharp
                 host.sc = sc;
             }
             ScriptState<object> endState = null;
-            if (_previousState == null)
+            if (previousState == null)
             {
                 endState = script.RunAsync(host).Result;
             }
             else
             {
                 // https://github.com/dotnet/roslyn/issues/6612
-                var m = script.GetType().GetMethod("ContinueAsync", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                const string methodName = "ContinueAsync";
+                var m = script.GetType().GetMethod(methodName, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
                 if (m != null)
                 {
-                    endState = ((Task<ScriptState<object>>)m.Invoke(script, new object[] { _previousState, default(CancellationToken) })).Result;
+                    endState = ((Task<ScriptState<object>>)m.Invoke(script, new object[] { previousState, default(CancellationToken) })).Result;
                 }
                 else
                 {
-                    throw new InvalidOperationException("Can't find method ContinueAsync!!!");
+                    throw new InvalidOperationException(string.Format("Can't find method {0}", methodName));
                 }
             }
-            _previousState = endState;
+            previousState = endState;
             return endState.ReturnValue;
         }
 
         private static void PersistCompilation(Compilation compilation)
         {
             //var compilation = script.GetCompilation();
-            using (FileStream stream = new FileStream(string.Format(@"{0}\{1}.dll", dllDirectory, counter++), FileMode.CreateNew))
+            using (FileStream stream = new FileStream(string.Format(@"{0}\{1}.dll", dllDirectory, seq++), FileMode.CreateNew))
             {
                 compilation.Emit(stream);
             }
-            Console.WriteLine("Emitted " + (counter-1) + ".dll");
         }
     }
 
@@ -117,11 +114,11 @@ using Microsoft.Spark.CSharp.Interop;
             {
                 Console.Write("> ");
                 string line = Console.ReadLine();
-                if (line == null)
+                if (string.IsNullOrEmpty(line))
                 {
                     continue;
                 }
-                if (line.Equals("quit", StringComparison.InvariantCultureIgnoreCase))
+                if (line.Trim().Equals(":quit", StringComparison.InvariantCultureIgnoreCase))
                 {
                     break;
                 }
