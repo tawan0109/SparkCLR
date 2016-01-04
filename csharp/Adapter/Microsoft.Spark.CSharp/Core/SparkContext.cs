@@ -514,7 +514,9 @@ namespace Microsoft.Spark.CSharp.Core
         internal static byte[] BuildCommand(CSharpWorkerFunc workerFunc, SerializedMode deserializerMode = SerializedMode.Byte, SerializedMode serializerMode = SerializedMode.Byte)
         {
             var formatter = new BinaryFormatter();
+            formatter.AssemblyFormat = System.Runtime.Serialization.Formatters.FormatterAssemblyStyle.Simple;
             var stream = new MemoryStream();
+            Console.WriteLine("WorkerFunc:" + workerFunc);
             formatter.Serialize(stream, workerFunc);
             List<byte[]> commandPayloadBytesList = new List<byte[]>();
 
@@ -540,6 +542,35 @@ namespace Microsoft.Spark.CSharp.Core
             Array.Reverse(lengthAsBytes);
             commandPayloadBytesList.Add(lengthAsBytes);
             commandPayloadBytesList.Add(modeBytes);
+
+            // run mode
+            /*
+            var runMode = Environment.GetEnvironmentVariable("SPARKCLR_RUN_MODE");
+            if (string.IsNullOrEmpty(runMode))
+            {
+                runMode = "normal";
+            }
+            var runModeBytes = Encoding.UTF8.GetBytes(runMode);
+            length = runModeBytes.Length;
+            lengthAsBytes = BitConverter.GetBytes(length);
+            Array.Reverse(lengthAsBytes);
+            commandPayloadBytesList.Add(lengthAsBytes);
+            commandPayloadBytesList.Add(runModeBytes);
+            */
+
+            // add assembly when run mode is shell
+            /*
+            if (runMode.Equals("shell", StringComparison.InvariantCultureIgnoreCase))
+            {
+                var dllDir = Environment.GetEnvironmentVariable("SPARKCLR_SHELL_DLL_DIR");
+                if (string.IsNullOrEmpty(dllDir))
+                {
+                    throw new Exception("Env variable 'SPARKCLR_SHELL_DLL_DIR' not set.");
+                }
+
+            }
+            */
+
             // add func
             var funcBytes = stream.ToArray();
             var funcBytesLengthAsBytes = BitConverter.GetBytes(funcBytes.Length);

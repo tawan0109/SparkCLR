@@ -104,16 +104,9 @@ copy /y *.cmd  "%SPARKCLR_HOME%\scripts\"
 popd
 
 @echo Install SparkCLR Shell
-REM TODO: extract the version number of nuget package to be a variable
-nuget install Microsoft.Net.Compilers  -OutputDirectory "%SPARKCLR_HOME%\shell" -Version 1.1.1
-
-REM Not all bits under tools directory are required, might need to remove those unnecessary ones in future
-copy /y "%SPARKCLR_HOME%\shell\Microsoft.Net.Compilers.1.1.1\tools\*" "%SPARKCLR_HOME%\shell\"
-rmdir /q /s "%SPARKCLR_HOME%\shell\Microsoft.Net.Compilers.1.1.1"
-copy /y "%CMDHOME%\csharp\Worker\Microsoft.Spark.CSharp\bin\Release\*" "%SPARKCLR_HOME%\shell\"
-
-pushd "%CMDHOME%\scripts"
-copy /y *.csx  "%SPARKCLR_HOME%\scripts\"
+pushd "%CMDHOME%\csharp"
+copy /y Worker\Microsoft.Spark.CSharp\bin\Release\* "%SPARKCLR_HOME%\shell\"
+copy /y shell\bin\Release\* "%SPARKCLR_HOME%\shell\"
 popd
 
 @echo zip run directory

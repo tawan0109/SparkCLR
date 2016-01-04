@@ -12,6 +12,7 @@ using System.Net.Sockets;
 using System.Reflection;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Formatters.Binary;
+using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Spark.CSharp.Core;
 using Microsoft.Spark.CSharp.Interop.Ipc;
@@ -34,8 +35,75 @@ namespace Microsoft.Spark.CSharp
         private static readonly DateTime UnixTimeEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         private static ILoggerService logger;
 
+        static Assembly MyHandler(object source, ResolveEventArgs e)
+        {
+            Console.WriteLine("Try to resolve assembly {0}", e.Name);
+            if (e.Name.Contains("#"))
+            {
+                foreach (var dll in Directory.GetFiles(@"d:\temp\dll"))
+                {
+                    Console.WriteLine("Dlls to match:" + dll);
+                }
+                
+                foreach (var dll in Directory.GetFiles(@"d:\temp\dll"))
+                {
+                    try
+                    {
+
+                        Console.WriteLine("Try to match assembly {0}", dll);
+
+                        byte[] bytes = File.ReadAllBytes(dll);
+                        if (bytes == null || bytes.Length == 0)
+                        {
+                            Console.WriteLine("Skip empty DLL:" + dll);
+                            continue;
+                        }
+                        Assembly assembly = Assembly.Load(File.ReadAllBytes(dll));
+                        if (assembly.FullName.StartsWith(e.Name))
+                        {
+                            Console.WriteLine("Find matched assembly {0}", e.Name);
+                            return assembly;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine(ex.StackTrace);
+                    }
+                }
+
+            }
+            return null;
+        }
+
+        /*
+        sealed class DeserializationBinder : SerializationBinder
+        {
+            public override Type BindToType(string assemblyName, string typeName)
+            {
+                Console.WriteLine("assemblyName: {0}, typeName:{1}", assemblyName, typeName);
+                Type typeToDeserialize = null;
+
+                if (typeName.StartsWith("Submission"))
+                {
+                    typeName = "Microsoft.Spark.CSharp.Core.CSharpWorkerFunc";
+                    //assemblyName = "Microsoft.Spark.CSharp.Adapter, Version=1.5.2.0, Culture=neutral, PublicKeyToken=null";
+                    Console.WriteLine("Change it to assemblyName: {0}, typeName:{1}", assemblyName, typeName);
+                }
+
+
+                typeToDeserialize = Type.GetType(string.Format("{0}, {1}", typeName, assemblyName));
+                Console.WriteLine("typeToDeserialize:{0}", typeToDeserialize);
+                return typeToDeserialize;
+                
+            }
+
+        }
+        */
+
         static void Main(string[] args)
         {
+            AppDomain.CurrentDomain.AssemblyResolve += MyHandler;
+
             // if there exists exe.config file, then use log4net
             if (File.Exists(AppDomain.CurrentDomain.SetupInformation.ConfigurationFile))
             {
@@ -122,7 +190,9 @@ namespace Microsoft.Spark.CSharp
                     int lengthOCommandByteArray = SerDe.ReadInt(s);
                     logger.LogInfo("command_len: " + lengthOCommandByteArray);
 
-                    IFormatter formatter = new BinaryFormatter();
+                    BinaryFormatter formatter = new BinaryFormatter();
+                    // formatter.AssemblyFormat = System.Runtime.Serialization.Formatters.FormatterAssemblyStyle.Simple;
+                    // formatter.Binder = new DeserializationBinder();
 
                     if (lengthOCommandByteArray > 0)
                     {
@@ -143,12 +213,17 @@ namespace Microsoft.Spark.CSharp
 
                         byte[] command = SerDe.ReadBytes(s);
 
+                        using (BinaryWriter writer = new BinaryWriter(File.Open(@"D:\SparkWorkspace\SparkCLR\run\Temp\fun.data", FileMode.Create)))
+                        {
+                            writer.Write(command);
+                        }
+
                         logger.LogInfo("command bytes read: " + command.Length);
                         var stream = new MemoryStream(command);
 
                         var workerFunc = (CSharpWorkerFunc)formatter.Deserialize(stream);
                         var func = workerFunc.Func;
-                        logger.LogInfo(string.Format("stack trace of workerFunc (dont't panic, this is just for debug):\n{0}", workerFunc.StackTrace));
+                        //logger.LogInfo(string.Format("stack trace of workerFunc (dont't panic, this is just for debug):\n{0}", workerFunc.StackTrace));
                         DateTime initTime = DateTime.UtcNow;
                         int count = 0;
 
@@ -287,6 +362,7 @@ namespace Microsoft.Spark.CSharp
                 }
                 catch (Exception e)
                 {
+                    Console.WriteLine(e.StackTrace);
                     logger.LogError(e.ToString());
                     try
                     {
@@ -338,6 +414,7 @@ namespace Microsoft.Spark.CSharp
         private int pos = 0;
 
         IFormatter formatter = new BinaryFormatter();
+
         private Stopwatch watch = new Stopwatch();
 
         public WorkerInputEnumerator(Stream inputStream, string deserializedMode)
