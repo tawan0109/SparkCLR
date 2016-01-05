@@ -549,15 +549,17 @@ namespace Microsoft.Spark.CSharp.Core
             {
                 runMode = "normal";
             }
+            Console.WriteLine("Runmode:" + runMode);
             AppendRunMode(commandPayloadBytesList, runMode);
 
             // add assembly when run mode is shell
             if (runMode.Equals("shell", StringComparison.InvariantCultureIgnoreCase))
             {
-                var dllDir = Environment.GetEnvironmentVariable("SPARKCLR_SHELL_DLL_DIR");
+                const string compilationDir = "SPARKCLR_SCRIPT_COMPILATION_DIR";
+                var dllDir = Environment.GetEnvironmentVariable(compilationDir);
                 if (string.IsNullOrEmpty(dllDir))
                 {
-                    throw new Exception("Env variable 'SPARKCLR_SHELL_DLL_DIR' not set.");
+                    throw new Exception("Env variable '" + compilationDir + "' not set.");
                 }
 
                 AppendAssemblies(commandPayloadBytesList, dllDir);

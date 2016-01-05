@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
@@ -26,45 +27,23 @@ namespace Microsoft.Spark.CSharp
     internal class SparkCLRAssemblyHandler
     {
 
-        public Assembly[] assemblies;
+        private readonly ConcurrentDictionary<string, Assembly> assemblyDict = new ConcurrentDictionary<string, Assembly>();
+
+        public void SetAssemblies(Assembly[] assemblies)
+        {
+            foreach (var assembly in assemblies)
+            {
+                assemblyDict[assembly.FullName] = assembly;
+            }
+        }
 
         public Assembly Handler(object source, ResolveEventArgs e)
         {
-            Console.WriteLine("Try to resolve assembly {0}", e.Name);
-            if (e.Name.Contains("#"))
+            if (assemblyDict.ContainsKey(e.Name))
             {
-                foreach (var dll in Directory.GetFiles(@"d:\temp\dll"))
-                {
-                    Console.WriteLine("Dlls to match:" + dll);
-                }
-
-                foreach (var dll in Directory.GetFiles(@"d:\temp\dll"))
-                {
-                    try
-                    {
-
-                        Console.WriteLine("Try to match assembly {0}", dll);
-
-                        byte[] bytes = File.ReadAllBytes(dll);
-                        if (bytes.Length == 0)
-                        {
-                            Console.WriteLine("Skip empty DLL:" + dll);
-                            continue;
-                        }
-                        Assembly assembly = Assembly.Load(File.ReadAllBytes(dll));
-                        if (assembly.FullName.StartsWith(e.Name))
-                        {
-                            Console.WriteLine("Find matched assembly {0}", e.Name);
-                            return assembly;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine(ex.StackTrace);
-                    }
-                }
-
+                return assemblyDict[e.Name];
             }
+
             return null;
         }
     }
@@ -80,33 +59,6 @@ namespace Microsoft.Spark.CSharp
     {
         private static readonly DateTime UnixTimeEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         private static ILoggerService logger;
-
-        
-
-        /*
-        sealed class DeserializationBinder : SerializationBinder
-        {
-            public override Type BindToType(string assemblyName, string typeName)
-            {
-                Console.WriteLine("assemblyName: {0}, typeName:{1}", assemblyName, typeName);
-                Type typeToDeserialize = null;
-
-                if (typeName.StartsWith("Submission"))
-                {
-                    typeName = "Microsoft.Spark.CSharp.Core.CSharpWorkerFunc";
-                    //assemblyName = "Microsoft.Spark.CSharp.Adapter, Version=1.5.2.0, Culture=neutral, PublicKeyToken=null";
-                    Console.WriteLine("Change it to assemblyName: {0}, typeName:{1}", assemblyName, typeName);
-                }
-
-
-                typeToDeserialize = Type.GetType(string.Format("{0}, {1}", typeName, assemblyName));
-                Console.WriteLine("typeToDeserialize:{0}", typeToDeserialize);
-                return typeToDeserialize;
-                
-            }
-
-        }
-        */
 
         static void Main(string[] args)
         {
@@ -224,20 +176,16 @@ namespace Microsoft.Spark.CSharp
                         if (runMode.Equals("shell", StringComparison.InvariantCultureIgnoreCase))
                         {
                             int assembliesCount = SerDe.ReadInt(s);
+                            logger.LogInfo("Total received assemblies count: " + assembliesCount);
                             var assemblies = new Assembly[assembliesCount];
                             for (var i = 0; i < assembliesCount; i++)
                             {
                                 assemblies[i] = Assembly.Load(SerDe.ReadBytes(s, SerDe.ReadInt(s)));
                             }
+                            assemblyHandler.SetAssemblies(assemblies);
                         }
 
                         byte[] command = SerDe.ReadBytes(s);
-
-                        using (BinaryWriter writer = new BinaryWriter(File.Open(@"D:\SparkWorkspace\SparkCLR\run\Temp\fun.data", FileMode.Create)))
-                        {
-                            writer.Write(command);
-                        }
-
                         logger.LogInfo("command bytes read: " + command.Length);
                         var stream = new MemoryStream(command);
 
