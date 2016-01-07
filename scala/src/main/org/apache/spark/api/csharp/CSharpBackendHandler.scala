@@ -1,5 +1,7 @@
-// Copyright (c) Microsoft. All rights reserved.
-// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+/*
+ * Copyright (c) Microsoft. All rights reserved.
+ * Licensed under the MIT license. See LICENSE file in the project root for full license information.
+ */
 
 package org.apache.spark.api.csharp
 
@@ -9,7 +11,8 @@ import java.net.Socket
 
 import io.netty.channel.ChannelHandler.Sharable
 import io.netty.channel.{ChannelHandlerContext, SimpleChannelInboundHandler}
-import org.apache.spark.api.csharp.SerDe._ //TODO - work with SparkR devs to make this configurable and reuse RBackendHandler
+// TODO - work with SparkR devs to make this configurable and reuse RBackendHandler
+import org.apache.spark.api.csharp.SerDe._
 
 import scala.collection.mutable.HashMap
 import scala.collection.mutable.HashMap
@@ -60,6 +63,7 @@ class CSharpBackendHandler(server: CSharpBackend) extends SimpleChannelInboundHa
           val t = readObjectType(dis)
           assert(t == 'i')
           val port = readInt(dis)
+          // scalastyle:off println
           println("Connecting to a callback server at port " + port)
           CSharpBackend.callbackPort = port
           writeInt(dos, 0)
@@ -67,6 +71,7 @@ class CSharpBackendHandler(server: CSharpBackend) extends SimpleChannelInboundHa
         case "closeCallback" =>
           // Send close to CSharp callback server.
           println("Requesting to close all call back sockets.")
+          // scalastyle:on
           var socket: Socket = null
           do {
             socket = CSharpBackend.callbackSockets.poll()
@@ -101,7 +106,9 @@ class CSharpBackendHandler(server: CSharpBackend) extends SimpleChannelInboundHa
 
   override def exceptionCaught(ctx: ChannelHandlerContext, cause: Throwable): Unit = {
     // Close the connection when an exception is raised.
+    // scalastyle:off println
     println("Exception caught: " + cause.getMessage)
+    // scalastyle:on
     cause.printStackTrace()
     ctx.close()
   }
@@ -164,13 +171,14 @@ class CSharpBackendHandler(server: CSharpBackend) extends SimpleChannelInboundHa
       }
     } catch {
       case e: Exception =>
-        //TODO - logError does not work now..fix //logError(s"$methodName on $objId failed", e)
+        // TODO - logError does not work now..fix //logError(s"$methodName on $objId failed", e)
         val jvmObj = JVMObjectTracker.get(objId)
         val jvmObjName = jvmObj match
         {
           case Some(jObj) => jObj.getClass.getName
           case None => "NullObject"
         }
+        // scalastyle:off println
         println(s"$methodName on object of type $jvmObjName failed")
         println(e.getMessage)
         println(e.printStackTrace())
@@ -188,6 +196,7 @@ class CSharpBackendHandler(server: CSharpBackend) extends SimpleChannelInboundHa
             }
           })
         }
+        // scalastyle:on println
         writeInt(dos, -1)
         writeString(dos, Utils.exceptionString(e.getCause))
     }
@@ -241,6 +250,7 @@ class CSharpBackendHandler(server: CSharpBackend) extends SimpleChannelInboundHa
     true
   }
 
+  // scalastyle:off println
   def logError(id: String) {
     println(id)
   }
@@ -248,6 +258,7 @@ class CSharpBackendHandler(server: CSharpBackend) extends SimpleChannelInboundHa
   def logWarning(id: String) {
     println(id)
   }
+  // scalastyle:on println
 
   def logError(id: String, e: Exception): Unit = {
 

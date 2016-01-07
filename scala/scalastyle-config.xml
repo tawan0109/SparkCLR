@@ -53,9 +53,9 @@ Reference: Spark scalastyle-config.xml (https://github.com/apache/spark/blob/mas
   <check level="error" class="org.scalastyle.file.HeaderMatchesChecker" enabled="true">
     <parameters>
        <parameter name="header"><![CDATA[/*
-* Copyright (c) Microsoft. All rights reserved.
-* Licensed under the MIT license. See LICENSE file in the project root for full license information.
-*/]]></parameter>
+ * Copyright (c) Microsoft. All rights reserved.
+ * Licensed under the MIT license. See LICENSE file in the project root for full license information.
+ */]]></parameter>
     </parameters>
   </check>
 
@@ -67,7 +67,7 @@ Reference: Spark scalastyle-config.xml (https://github.com/apache/spark/blob/mas
 
   <check level="error" class="org.scalastyle.file.FileLineLengthChecker" enabled="true">
     <parameters>
-      <parameter name="maxLineLength"><![CDATA[100]]></parameter>
+      <parameter name="maxLineLength"><![CDATA[101]]></parameter>
       <parameter name="tabSize"><![CDATA[2]]></parameter>
       <parameter name="ignoreImports">true</parameter>
     </parameters>
@@ -160,12 +160,13 @@ Reference: Spark scalastyle-config.xml (https://github.com/apache/spark/blob/mas
     ]]></customMessage>
   </check>
 
-  <!-- As of SPARK-9613 JavaConversions should be replaced with JavaConverters -->
+  <!-- As of SPARK-9613 JavaConversions should be replaced with JavaConverters 
   <check customId="javaconversions" level="error" class="org.scalastyle.scalariform.TokenChecker" enabled="true">
     <parameters><parameter name="regex">JavaConversions</parameter></parameters>
     <customMessage>Instead of importing implicits in scala.collection.JavaConversions._, import
     scala.collection.JavaConverters._ and use .asScala / .asJava methods</customMessage>
   </check>
+-->
 
   <!-- As of SPARK-10330 JobContext methods should not be called directly -->
   <check customId="jobcontext" level="error" class="org.scalastyle.scalariform.TokenChecker" enabled="true">
