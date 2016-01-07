@@ -82,6 +82,17 @@ namespace Microsoft.Spark.CSharp.Core
         {
         }
 
+        /// <summary>
+        /// when created from checkpoint
+        /// </summary>
+        /// <param name="sparkContextProxy"></param>
+        /// <param name="conf"></param>
+        internal SparkContext(ISparkContextProxy sparkContextProxy, SparkConf conf)
+        {
+            SparkContextProxy = sparkContextProxy;
+            SparkConf = conf;
+        }
+
         private SparkContext(string master, string appName, string sparkHome, SparkConf conf)
         {
             SparkConf = conf ?? new SparkConf();
@@ -500,12 +511,21 @@ namespace Microsoft.Spark.CSharp.Core
             SparkContextProxy.CancelAllJobs();
         }
 
-        internal static byte[] BuildCommand(object func, SerializedMode deserializerMode = SerializedMode.Byte, SerializedMode serializerMode = SerializedMode.Byte)
+        internal static byte[] BuildCommand(CSharpWorkerFunc workerFunc, SerializedMode deserializerMode = SerializedMode.Byte, SerializedMode serializerMode = SerializedMode.Byte)
         {
             var formatter = new BinaryFormatter();
             var stream = new MemoryStream();
-            formatter.Serialize(stream, func);
+            formatter.Serialize(stream, workerFunc);
             List<byte[]> commandPayloadBytesList = new List<byte[]>();
+
+            // reserve 12 bytes for RddId, stageId and partitionId, this info will be filled in CSharpRDD.scala
+            byte[] rddInfo = new byte[12];
+            for (int i = 0; i < rddInfo.Length; i++)
+            {
+                rddInfo[i] = 0;
+            }
+            commandPayloadBytesList.Add(rddInfo);
+
             // add deserializer mode
             var modeBytes = Encoding.UTF8.GetBytes(deserializerMode.ToString());
             var length = modeBytes.Length;

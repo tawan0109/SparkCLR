@@ -26,7 +26,7 @@ namespace Microsoft.Spark.CSharp.Streaming
     [Serializable]
     internal class TransformedDStream<U> : DStream<U>
     {
-        protected Func<double, RDD<dynamic>, RDD<dynamic>> func;
+        internal Func<double, RDD<dynamic>, RDD<dynamic>> func;
         private Func<double, RDD<dynamic>, RDD<dynamic>> prevFunc;
 
         internal void Init<T>(DStream<T> prev, Func<double, RDD<dynamic>, RDD<dynamic>> f)
@@ -78,7 +78,7 @@ namespace Microsoft.Spark.CSharp.Streaming
                     var formatter = new BinaryFormatter();
                     var stream = new MemoryStream();
                     formatter.Serialize(stream, func);
-                    dstreamProxy = SparkCLREnvironment.SparkCLRProxy.CreateCSharpDStream(prevDStreamProxy, stream.ToArray(), prevSerializedMode.ToString());
+                    dstreamProxy = SparkCLREnvironment.SparkCLRProxy.StreamingContextProxy.CreateCSharpDStream(prevDStreamProxy, stream.ToArray(), prevSerializedMode.ToString());
                 }
                 return dstreamProxy;
             }

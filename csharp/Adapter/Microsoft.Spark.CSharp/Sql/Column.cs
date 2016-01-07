@@ -124,7 +124,7 @@ namespace Microsoft.Spark.CSharp.Sql
         {
             if (ReferenceEquals(null, obj)) return false;
             if (ReferenceEquals(this, obj)) return true;
-            return obj.GetType() == this.GetType() && Equals(this.columnProxy, ((Column)obj).columnProxy);
+            return obj.GetType() == GetType() && Equals(columnProxy, ((Column)obj).columnProxy);
         }
 
         /// <summary>
@@ -174,6 +174,30 @@ namespace Microsoft.Spark.CSharp.Sql
         public Column Desc()
         {
             return new Column(columnProxy.UnaryOp("desc"));
+        }
+
+        public Column Alias(string alias)
+        {
+            return new Column(columnProxy.InvokeMethod("as", alias));
+        }
+
+        public Column Alias(string[] aliases)
+        {
+            return new Column(columnProxy.InvokeMethod("as", new object[] { aliases }));
+        }
+
+        /// <summary>
+        /// Casts the column to a different data type, using the canonical string representation
+        /// of the type. The supported types are: `string`, `boolean`, `byte`, `short`, `int`, `long`,
+        /// `float`, `double`, `decimal`, `date`, `timestamp`.
+        /// 
+        /// E.g.
+        ///     // Casts colA to integer.
+        ///     df.select(df("colA").cast("int"))
+        /// </summary>
+        public Column Cast(string to)
+        {
+            return new Column(columnProxy.InvokeMethod("cast", new object[] { to }));
         }
     }
 }

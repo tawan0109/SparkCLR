@@ -153,7 +153,7 @@ namespace Microsoft.Spark.CSharp.Core
         private bool serverShutdown;
 
         internal AccumulatorServer()
-            : base(IPAddress.Parse("127.0.0.1"), 0)
+            : base(IPAddress.Loopback, 0)
         {
 
         }
@@ -187,7 +187,6 @@ namespace Microsoft.Spark.CSharp.Core
                             }
                             ns.WriteByte((byte)1);  // acknowledge byte other than -1
                             ns.Flush();
-                            Thread.Sleep(1000);
                         }
                     }
                 }

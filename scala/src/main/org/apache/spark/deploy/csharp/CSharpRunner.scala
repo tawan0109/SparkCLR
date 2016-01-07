@@ -90,7 +90,8 @@ object CSharpRunner {
 
     if (initialized.tryAcquire(backendTimeout, TimeUnit.SECONDS)) {
       if (!runInDebugMode) {
-        val returnCode = try {
+        var returnCode = -1
+        try {
           val builder = new ProcessBuilder(processParameters)
           val env = builder.environment()
           env.put("CSHARPBACKEND_PORT", csharpBackendPortNumber.toString)
@@ -102,30 +103,31 @@ object CSharpRunner {
           builder.redirectErrorStream(true) // Ugly but needed for stdout and stderr to synchronize
           val process = builder.start()
 
-          new RedirectThread(process.getInputStream, System.out, "redirect CSharp output").start()
+          // Redirect stdout and stderr of C# process
+          new RedirectThread(process.getInputStream, System.out, "redirect CSharp stdout").start()
+          new RedirectThread(process.getErrorStream, System.out, "redirect CSharp stderr").start()
 
-          process.waitFor()
-        } catch {
-          case e: Exception => println("[CSharpRunner.main]" + e.getMessage + "\n" + e.getStackTrace)
-        }
-        finally {
+          returnCode = process.waitFor()
           closeBackend(csharpBackend)
+        } catch {
+          case t: Throwable => println("[CSharpRunner.main]" + t.getMessage + "\n" + t.getStackTrace)
         }
+
         println("[CSharpRunner.main] Return CSharpBackend code " + returnCode)
-        System.exit(returnCode.toString.toInt)
+        CSharpSparkUtils.exit(returnCode)
       } else {
         println("***********************************************************************")
         println("* [CSharpRunner.main] Backend running debug mode. Press enter to exit *")
         println("***********************************************************************")
         Console.readLine()
         closeBackend(csharpBackend)
-        System.exit(0)
+        CSharpSparkUtils.exit(0)
       }
     } else {
       // scalastyle:off println
       println("[CSharpRunner.main] CSharpBackend did not initialize in " + backendTimeout + " seconds")
       // scalastyle:on println
-      System.exit(-1)
+      CSharpSparkUtils.exit(-1)
     }
   }
 

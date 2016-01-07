@@ -6,9 +6,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using Microsoft.Spark.CSharp.Core;
-using Microsoft.Spark.CSharp.Interop.Ipc;
 using Microsoft.Spark.CSharp.Proxy;
-using Microsoft.Spark.CSharp.Proxy.Ipc;
 
 namespace Microsoft.Spark.CSharp.Sql
 {
@@ -24,16 +22,16 @@ namespace Microsoft.Spark.CSharp.Sql
         private readonly IDataFrameProxy dataFrameProxy;
         [NonSerialized]
         private readonly SparkContext sparkContext;
-        [NonSerialized]
+
         private StructType schema;
-        private RowSchema rowSchema;
         [NonSerialized]
         private RDD<Row> rdd;
-
+        [NonSerialized]
+        private IRDDProxy rddProxy;
         [NonSerialized]
         private bool? isLocal;
         [NonSerialized]
-        private Random random = new Random();
+        private readonly Random random = new Random();
 
         public RDD<Row> Rdd
         {
@@ -41,14 +39,23 @@ namespace Microsoft.Spark.CSharp.Sql
             {
                 if (rdd == null)
                 {
-                    if (rowSchema == null)
-                    {
-                        rowSchema = RowSchema.ParseRowSchemaFromJson(Schema.ToJson());
-                    }
-                    IRDDProxy rddProxy = dataFrameProxy.JavaToCSharp();
-                    rdd = new RDD<Object[]>(rddProxy, sparkContext, SerializedMode.Row).Map(item => (Row)new RowImpl(item, rowSchema));
+                    rddProxy = dataFrameProxy.JavaToCSharp();
+                    rdd = new RDD<Row>(rddProxy, sparkContext, SerializedMode.Row);
                 }
                 return rdd;
+            }
+        }
+
+        private IRDDProxy RddProxy
+        {
+            get
+            {
+                if (rddProxy == null)
+                {
+                    rddProxy = dataFrameProxy.JavaToCSharp();
+                    rdd = new RDD<Row>(rddProxy, sparkContext, SerializedMode.Row);
+                }
+                return rddProxy;
             }
         }
 
@@ -130,7 +137,7 @@ namespace Microsoft.Spark.CSharp.Sql
         /// </summary>
         public void ShowSchema()
         {
-            List<string> nameTypeList = Schema.Fields.Select(structField => string.Format("{0}:{1}", structField.Name, structField.DataType.SimpleString())).ToList();
+            var nameTypeList = Schema.Fields.Select(structField => structField.SimpleString);
             Console.WriteLine(string.Join(", ", nameTypeList));
         }
 
@@ -139,28 +146,17 @@ namespace Microsoft.Spark.CSharp.Sql
         /// </summary>
         public IEnumerable<Row> Collect()
         {
-            if (rowSchema == null)
-            {
-                rowSchema = RowSchema.ParseRowSchemaFromJson(Schema.ToJson());
-            }
-
-            IRDDProxy rddProxy = dataFrameProxy.JavaToCSharp();
-            RDD<Row> rdd = new RDD<Row>(rddProxy, sparkContext, SerializedMode.Row);
-            
-            int port = rddProxy.CollectAndServe();
-            foreach (var item in rdd.Collect(port))
-            {
-                yield return new RowImpl(item, rowSchema);
-            }
+            int port = RddProxy.CollectAndServe();
+            return Rdd.Collect(port).Cast<Row>();
         }
 
         /// <summary>
-        /// Converts the DataFrame to RDD of byte[]
+        /// Converts the DataFrame to RDD of Row
         /// </summary>
         /// <returns>resulting RDD</returns>
-        public RDD<byte[]> ToRDD() //RDD created using byte representation of GenericRow objects
+        public RDD<Row> ToRDD() //RDD created using byte representation of Row objects
         {
-            return new RDD<byte[]>(dataFrameProxy.ToRDD(), sparkContext);
+            return Rdd;
         }
 
         /// <summary>
@@ -170,7 +166,7 @@ namespace Microsoft.Spark.CSharp.Sql
         public RDD<string> ToJSON()
         {
             var stringRddReference = dataFrameProxy.ToJSON();
-            return new RDD<string>(stringRddReference, sparkContext);
+            return new RDD<string>(stringRddReference, sparkContext, SerializedMode.String);
         }
 
         /// <summary>
@@ -184,6 +180,31 @@ namespace Microsoft.Spark.CSharp.Sql
             {
                 Console.WriteLine(dataFrameProxy.GetExecutedPlan());
             }
+        }
+
+        /// <summary>
+        /// Selects a set of columns specified by column name or Column.
+        /// 
+        /// df.Select("colA", df["colB"])
+        /// df.Select("*", df["colB"] + 10)
+        /// 
+        /// </summary>
+        /// <param name="firstColumn">first column - required, must be of type string or Column</param>
+        /// <param name="otherColumns">other column - optional, must be of type string or Column</param>
+        /// <returns></returns>
+        public DataFrame Select(object firstColumn, params object[] otherColumns)
+        {
+            var originalColumns = new List<object> { firstColumn };
+            originalColumns.AddRange(otherColumns);
+            var invalidColumn = originalColumns.FirstOrDefault(c => !(c is string || c is Column));
+            if (invalidColumn != null)
+            {
+                throw new ArgumentException(string.Format("one or more parameter is not string or Column: {0}", invalidColumn));
+            }
+
+            var columns = originalColumns.Select(oc => oc is string ? Functions.Col((string)oc) : (Column)oc);
+
+            return new DataFrame(dataFrameProxy.Select(columns.Select(c => c.ColumnProxy)), sparkContext);
         }
 
         /// <summary>
@@ -261,6 +282,28 @@ namespace Microsoft.Spark.CSharp.Sql
         {
             var scalaGroupedDataReference = dataFrameProxy.GroupBy(firstColumnName, otherColumnNames);
             return new GroupedData(scalaGroupedDataReference, this);
+        }
+
+        /// <summary>
+        /// Create a multi-dimensional rollup for the current DataFrame using the specified columns, so we can run aggregation on them.
+        /// </summary>
+        /// <param name="firstColumnName">first column name - required</param>
+        /// <param name="otherColumnNames">other column names - optional</param>
+        /// <returns></returns>
+        public GroupedData Rollup(string firstColumnName, params string[] otherColumnNames)
+        {
+            return new GroupedData(dataFrameProxy.Rollup(firstColumnName, otherColumnNames), this);
+        }
+
+        /// <summary>
+        /// Create a multi-dimensional cube for the current DataFrame using the specified columns, so we can run aggregation on them.
+        /// </summary>
+        /// <param name="firstColumnName">first column name - required</param>
+        /// <param name="otherColumnNames">other column names - optional</param>
+        /// <returns></returns>
+        public GroupedData Cube(string firstColumnName, params string[] otherColumnNames)
+        {
+            return new GroupedData(dataFrameProxy.Cube(firstColumnName, otherColumnNames), this);
         }
 
         private GroupedData GroupBy()
@@ -401,15 +444,54 @@ namespace Microsoft.Spark.CSharp.Sql
             if (how != "any" && how != "all")
                 throw new ArgumentException(string.Format(@"how ({0}) should be 'any' or 'all'.", how));
 
-            string[] columnNames = null;
             if (subset == null || subset.Length == 0)
-                columnNames = dataFrameProxy.GetSchema().GetStructTypeFields().Select(f => f.GetStructFieldName().ToString(CultureInfo.InvariantCulture)).ToArray();
+                subset = dataFrameProxy.GetSchema().GetStructTypeFields().Select(f => f.GetStructFieldName().ToString(CultureInfo.InvariantCulture)).ToArray();
 
-            if (thresh == null)
-                thresh = how == "any" ? (subset == null ? columnNames.Length : subset.Length) : 1;
+            if (!thresh.HasValue)
+                thresh = how == "any" ? subset.Length : 1;
 
-            return
-                new DataFrame(dataFrameProxy.DropNa(thresh, subset ?? columnNames), sparkContext);
+            return Na().Drop(thresh.Value, subset);
+        }
+
+        /// <summary>
+        /// Returns a DataFrameNaFunctions for working with missing data.
+        /// </summary>
+        /// Reference: https://github.com/apache/spark/blob/branch-1.4/python/pyspark/sql/dataframe.py, na(self)
+        public DataFrameNaFunctions Na()
+        {
+            return new DataFrameNaFunctions(dataFrameProxy.Na(), this, sparkContext);
+        }
+
+        /// <summary>
+        /// Replace null values, alias for ``na.fill()`
+        /// </summary>
+        /// <param name="value">
+        /// Value to replace null values with.
+        /// Value type should be float, double, short, int, long, string or Dictionary.
+        /// If the value is a dict, then `subset` is ignored and `value` must be a mapping
+        /// from column name (string) to replacement value. The replacement value must be
+        /// an int, long, float, or string.
+        /// </param>
+        /// <param name="subset">
+        /// optional list of column names to consider.
+        /// Columns specified in subset that do not have matching data type are ignored.
+        /// For example, if `value` is a string, and subset contains a non-string column,
+        /// then the non-string column is simply ignored.
+        /// </param>
+        // Reference: https://github.com/apache/spark/blob/branch-1.4/python/pyspark/sql/dataframe.py, fillna(self, value, subset=None)
+        public DataFrame FillNa(dynamic value, string[] subset = null)
+        {
+            var validTypes = new[] { typeof(int), typeof(short), typeof(long), typeof(double), typeof(float), typeof(string), typeof(Dictionary<string,dynamic>) };
+            if (validTypes.All(t => t != value.GetType()))
+                throw new ArgumentException("value type should be float, double, short, int, long, string or Dictionary.");
+
+            var dict = value as Dictionary<string, dynamic>;
+            if (dict != null)
+            {
+                return Na().Fill(dict);
+            }
+
+            return subset == null ? Na().Fill(value) : Na().Fill(value, subset);
         }
 
         /// <summary>
@@ -574,12 +656,112 @@ namespace Microsoft.Spark.CSharp.Sql
 
         /// <summary>
         /// Returns a new DataFrame with an alias set.
-        /// Reference to https://github.com/apache/spark/blob/branch-1.4/python/pyspark/sql/dataframe.py, alias(self, alias) </summary>
+        /// Reference to https://github.com/apache/spark/blob/branch-1.4/python/pyspark/sql/dataframe.py, alias(self, alias) 
+        /// </summary>
         /// <param name="alias">The alias of the DataFrame</param>
         /// <returns>A new DataFrame with an alias set</returns>
         public DataFrame Alias(string alias)
         {
             return new DataFrame(dataFrameProxy.Alias(alias), sparkContext);
+        }
+
+        /// <summary>
+        /// Returns a new DataFrame by adding a column.
+        /// Reference to https://github.com/apache/spark/blob/branch-1.4/python/pyspark/sql/dataframe.py, withColumn(self, colName, col)
+        /// </summary>
+        /// <param name="newColName">name of the new column</param>
+        /// <param name="column">a Column expression for the new column</param>
+        /// <returns>A new DataFrame with the added column</returns>
+        public DataFrame WithColumn(string newColName, Column column)
+        {
+            return Select("*", column.Alias(newColName));
+        }
+
+        /// <summary>
+        /// Returns a new DataFrame by renaming an existing column.
+        /// Reference to https://github.com/apache/spark/blob/branch-1.4/python/pyspark/sql/dataframe.py, withColumnRenamed(self, existing, new)
+        /// </summary>
+        /// <param name="existingName">name of an existing column</param>
+        /// <param name="newName">new name</param>
+        /// <returns>A new DataFrame with renamed column</returns>
+        public DataFrame WithColumnRenamed(string existingName, string newName)
+        {
+            var columns = new List<Column>();
+            foreach (var col in Columns())
+            {
+                columns.Add(col == existingName ? this[existingName].Alias(newName) : this[col]);
+            }
+            // select columns including the column renamed
+            return Select(columns[0], columns.Skip(1).ToArray());
+        }
+
+        /// <summary>
+        /// Calculates the correlation of two columns of a DataFrame as a double value.
+        /// Currently only supports the Pearson Correlation Coefficient.
+        /// Reference to https://github.com/apache/spark/blob/branch-1.4/python/pyspark/sql/dataframe.py, corr(self, col1, col2, method=None)
+        /// </summary>
+        /// <param name="column1">The name of the first column</param>
+        /// <param name="column2">The name of the second column</param>
+        /// <param name="method">The correlation method. Currently only supports "pearson"</param>
+        /// <returns>The correlation of two columns</returns>
+        public double Corr(string column1, string column2, string method = "pearson")
+        {
+            if (!method.Equals("pearson", StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("Currently only the calculation of the Pearson Correlation coefficient is supported.");
+
+            return dataFrameProxy.Corr(column1, column2, method);
+        }
+
+        /// <summary>
+        /// Calculate the sample covariance of two columns as a double value.
+        /// Reference to https://github.com/apache/spark/blob/branch-1.4/python/pyspark/sql/dataframe.py, cov(self, col1, col2)
+        /// </summary>
+        /// <param name="column1">The name of the first column</param>
+        /// <param name="column2">The name of the second column</param>
+        /// <returns>The sample covariance of two columns</returns>
+        public double Cov(string column1, string column2)
+        {
+            return dataFrameProxy.Cov(column1, column2);
+        }
+
+        /// <summary>
+        /// Finding frequent items for columns, possibly with false positives. Using the frequent element count algorithm described in 
+        /// "http://dx.doi.org/10.1145/762471.762473, proposed by Karp, Schenker, and Papadimitriou".
+        /// Reference to https://github.com/apache/spark/blob/branch-1.4/python/pyspark/sql/dataframe.py, freqItems(self, cols, support=None)
+        /// 
+        /// <alert class="note">Note: This function is meant for exploratory data analysis, as we make no guarantee about the backward compatibility 
+        /// of the schema of the resulting DataFrame. </alert>
+        /// </summary>
+        /// <param name="columns"></param>
+        /// <param name="support"></param>
+        /// <returns></returns>
+        public DataFrame FreqItems(IEnumerable<string> columns, double support = 0.01)
+        {
+            return new DataFrame(dataFrameProxy.FreqItems(columns, support), sparkContext);
+        }
+
+        /// <summary>
+        /// Computes a pair-wise frequency table of the given columns. Also known as a contingency table.
+        /// The number of distinct values for each column should be less than 1e4. At most 1e6 non-zero pair frequencies will be returned.
+        /// Reference to https://github.com/apache/spark/blob/branch-1.4/python/pyspark/sql/dataframe.py, crosstab(self, col1, col2)
+        /// </summary>
+        /// <param name="column1">The name of the first column. Distinct items will make the first item of each row</param>
+        /// <param name="column2">The name of the second column. Distinct items will make the column names of the DataFrame</param>
+        /// <returns>A pair-wise frequency table of the given columns</returns>
+        public DataFrame Crosstab(string column1, string column2)
+        {
+            return new DataFrame(dataFrameProxy.Crosstab(column1, column2), sparkContext);
+        }
+
+        /// <summary>
+        /// Computes statistics for numeric columns.
+        /// This include count, mean, stddev, min, and max. If no columns are given, this function computes statistics for all numerical columns.
+        /// </summary>
+        /// <param name="columns">Column names to compute statistics.</param>
+        /// <returns></returns>
+        public DataFrame Describe(params string[] columns)
+        {
+            return new DataFrame(dataFrameProxy.Describe(columns), sparkContext);
         }
 
         /// <summary>
@@ -631,7 +813,7 @@ namespace Microsoft.Spark.CSharp.Sql
             var validTypes = new[] { typeof(int), typeof(short), typeof(long), typeof(double), typeof(float), typeof(string) };
             if (!validTypes.Any(t => t == typeof(T)))
                 throw new ArgumentException("toReplace and value should be a float, double, short, int, long or string");
-
+            
             object subsetObj;
             if (subset == null || subset.Length == 0)
             {
@@ -643,7 +825,7 @@ namespace Microsoft.Spark.CSharp.Sql
             }
             return new DataFrame(dataFrameProxy.Replace(subsetObj, toReplaceAndValue), sparkContext);
         }
-
+		
         /// <summary>
         /// Returns a new DataFrame that has exactly `numPartitions` partitions.
         /// Similar to coalesce defined on an RDD, this operation results in a narrow dependency, 
@@ -727,14 +909,150 @@ namespace Microsoft.Spark.CSharp.Sql
         }
 
         /// <summary>
+        /// Returns a new RDD by applying a function to all rows of this DataFrame.
+        /// </summary>
+        // Python API: https://github.com/apache/spark/blob/branch-1.4/python/pyspark/sql/dataframe.py map(self, f)
+        public RDD<U> Map<U>(Func<Row, U> f)
+        {
+            return Rdd.Map(f);
+        }
+
+        /// <summary>
         /// Returns a new RDD by applying a function to each partition of this DataFrame.
         /// </summary>
         // Python API: https://github.com/apache/spark/blob/branch-1.4/python/pyspark/sql/dataframe.py
-        // mapPartitions(self, f, preservesPartitioning=False):
+        // mapPartitions(self, f, preservesPartitioning=False)
         public RDD<U> MapPartitions<U>(Func<IEnumerable<Row>, IEnumerable<U>> f, bool preservesPartitioning = false)
         {
             return Rdd.MapPartitions(f, preservesPartitioning);
         }
+
+        /// <summary>
+        /// Applies a function f to each partition of this DataFrame.
+        /// </summary>
+        // Python API: https://github.com/apache/spark/blob/branch-1.4/python/pyspark/sql/dataframe.py
+        // foreachPartition(self, f)
+        public void ForeachPartition(Action<IEnumerable<Row>> f)
+        {
+            Rdd.ForeachPartition(f);
+        }
+
+        /// <summary>
+        /// Applies a function f to all rows.
+        /// </summary>
+        // Python API: https://github.com/apache/spark/blob/branch-1.4/python/pyspark/sql/dataframe.py
+        // foreach(self, f)
+        public void Foreach(Action<Row> f)
+        {
+            Rdd.Foreach(f);
+        }
+
+        /// <summary>
+        /// Interface for saving the content of the DataFrame out into external storage.
+        /// </summary>
+        // Python API: https://github.com/apache/spark/blob/branch-1.4/python/pyspark/sql/dataframe.py
+        // write(self)
+        public DataFrameWriter Write()
+        {
+            return new DataFrameWriter(dataFrameProxy.Write());
+        }
+
+        /// <summary>
+        /// Saves the contents of this DataFrame as a parquet file, preserving the schema.
+        /// Files that are written out using this method can be read back in as a DataFrame
+        /// using the `parquetFile` function in SQLContext.
+        /// </summary>
+        // Python API: https://github.com/apache/spark/blob/branch-1.4/python/pyspark/sql/dataframe.py
+        // saveAsParquetFile(self, path)
+        public void SaveAsParquetFile(String path)
+        {
+            Write().Parquet(path);
+        }
+
+        /// <summary>
+        /// Adds the rows from this RDD to the specified table, optionally overwriting the existing data.
+        /// </summary>
+        // Python API: https://github.com/apache/spark/blob/branch-1.4/python/pyspark/sql/dataframe.py
+        // insertInto(self, tableName, overwrite=False)
+        public void InsertInto(string tableName, bool overwrite = false)
+        {
+            var mode = overwrite ? SaveMode.Overwrite : SaveMode.Append;
+            Write().Mode(mode).InsertInto(tableName);
+        }
+
+        /// <summary>
+        /// Creates a table from the the contents of this DataFrame based on a given data source, 
+        /// SaveMode specified by mode, and a set of options.
+        /// 
+        /// Note that this currently only works with DataFrames that are created from a HiveContext as
+        /// there is no notion of a persisted catalog in a standard SQL context.  Instead you can write
+        /// an RDD out to a parquet file, and then register that file as a table.  This "table" can then
+        /// be the target of an `insertInto`.
+        /// 
+        /// Also note that while this function can persist the table metadata into Hive's metastore,
+        /// the table will NOT be accessible from Hive, until SPARK-7550 is resolved.
+        /// </summary>
+        // Python API: https://github.com/apache/spark/blob/branch-1.4/python/pyspark/sql/dataframe.py
+        // saveAsTable(self, tableName, source=None, mode="error", **options)
+        public void SaveAsTable(string tableName, string source = null, SaveMode mode = SaveMode.ErrorIfExists, params string[] options)
+        {
+            var dataFrameWriter = Write().Mode(mode);
+            if (source != null)
+            {
+                dataFrameWriter = dataFrameWriter.Format(source);
+            }
+            if (options.Length > 0)
+            {
+                dataFrameWriter = dataFrameWriter.Options(ParamsToDict(options));
+            }
+            dataFrameWriter.SaveAsTable(tableName);
+        }
+
+        /// <summary>
+        /// Saves the contents of this DataFrame based on the given data source, 
+        /// SaveMode specified by mode, and a set of options.
+        /// </summary>
+        // Python API: https://github.com/apache/spark/blob/branch-1.4/python/pyspark/sql/dataframe.py
+        // save(self, path=None, source=None, mode="error", **options)
+        public void Save(string path = null, string source = null, SaveMode mode = SaveMode.ErrorIfExists, params string[] options)
+        {
+            var dataFrameWriter = Write().Mode(mode);
+            if (source != null)
+            {
+                dataFrameWriter = dataFrameWriter.Format(source);
+            }
+            if (options.Length > 0)
+            {
+                dataFrameWriter = dataFrameWriter.Options(ParamsToDict(options));
+            }
+            if (path != null)
+            {
+                dataFrameWriter.Save(path);
+            }
+            else
+            {
+                dataFrameWriter.Save();
+            }
+        }
+
+        // Helper method to convert variable number of arguments to a dictionary.
+        private Dictionary<string, string> ParamsToDict(params string[] options)
+        {
+            var optionDict = new Dictionary<string, string>();
+            if (options.Length <= 0)
+            {
+                return optionDict;
+            }
+            if (options.Length % 2 != 0)
+            {
+                throw new ArgumentException("options length must be even.");
+            }
+            for (var i = 0; i < options.Length; i++)
+            {
+                optionDict[options[i]] = options[++i];
+            }
+            return optionDict;
+        } 
     }
 
     public class JoinType
@@ -794,6 +1112,11 @@ namespace Microsoft.Spark.CSharp.Sql
 
     public class GroupedData
     {
+        internal IGroupedDataProxy GroupedDataProxy
+        {
+            get { return groupedDataProxy; }
+        }
+
         private readonly IGroupedDataProxy groupedDataProxy;
         private readonly DataFrame dataFrame;
 
@@ -806,6 +1129,36 @@ namespace Microsoft.Spark.CSharp.Sql
         public DataFrame Agg(Dictionary<string, string> columnNameAggFunctionDictionary)
         {
             return new DataFrame(dataFrame.DataFrameProxy.Agg(groupedDataProxy, columnNameAggFunctionDictionary), dataFrame.SparkContext);
+        }
+
+        public DataFrame Count()
+        {
+            return new DataFrame(groupedDataProxy.Count(), dataFrame.SparkContext);
+        }
+
+        public DataFrame Mean(params string[] columns)
+        {
+            return new DataFrame(groupedDataProxy.Mean(columns), dataFrame.SparkContext);
+        }
+
+        public DataFrame Max(params string[] columns)
+        {
+            return new DataFrame(groupedDataProxy.Max(columns), dataFrame.SparkContext);
+        }
+
+        public DataFrame Min(params string[] columns)
+        {
+            return new DataFrame(groupedDataProxy.Min(columns), dataFrame.SparkContext);
+        }
+
+        public DataFrame Avg(params string[] columns)
+        {
+            return new DataFrame(groupedDataProxy.Avg(columns), dataFrame.SparkContext);
+        }
+
+        public DataFrame Sum(params string[] columns)
+        {
+            return new DataFrame(groupedDataProxy.Sum(columns), dataFrame.SparkContext);
         }
     }
 }

@@ -99,6 +99,11 @@ namespace AdapterTest.Mocks
             throw new NotImplementedException();
         }
 
+        public IDataFrameProxy Select(IEnumerable<IColumnProxy> columns)
+        {
+            throw new NotImplementedException();
+        }
+
         public IDataFrameProxy SelectExpr(string[] columnExpressions)
         {
             throw new NotImplementedException();
@@ -115,6 +120,16 @@ namespace AdapterTest.Mocks
         }
 
         public IGroupedDataProxy GroupBy()
+        {
+            throw new NotImplementedException();
+        }
+
+        public IGroupedDataProxy Rollup(string firstColumnName, string[] otherColumnNames)
+        {
+            throw new NotImplementedException();
+        }
+
+        public IGroupedDataProxy Cube(string firstColumnName, string[] otherColumnNames)
         {
             throw new NotImplementedException();
         }
@@ -180,6 +195,26 @@ namespace AdapterTest.Mocks
             throw new NotImplementedException();
         }
 
+        public double Corr(string column1, string column2, string method)
+        {
+            throw new NotImplementedException();
+        }
+
+        public double Cov(string column1, string column2)
+        {
+            throw new NotImplementedException();
+        }
+
+        public IDataFrameProxy FreqItems(IEnumerable<string> columns, double support)
+        {
+            throw new NotImplementedException();
+        }
+
+        public IDataFrameProxy Crosstab(string column1, string column2)
+        {
+            throw new NotImplementedException();
+        }
+
         public IDataFrameProxy Limit(int num)
         {
             throw new NotImplementedException();
@@ -201,6 +236,11 @@ namespace AdapterTest.Mocks
         }
 
         public IDataFrameProxy Sample(bool withReplacement, double fraction, long seed)
+        {
+            throw new NotImplementedException();
+        }
+
+        public IDataFrameWriterProxy Write()
         {
             throw new NotImplementedException();
         }
@@ -246,6 +286,11 @@ namespace AdapterTest.Mocks
         }
 
         public IDataFrameProxy DropNa(int? thresh, string[] subset)
+        {
+            throw new NotImplementedException();
+        }
+
+        public IDataFrameNaFunctionsProxy Na()
         {
             throw new NotImplementedException();
         }

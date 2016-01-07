@@ -3,9 +3,11 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Microsoft.Spark.CSharp.Core;
 using Microsoft.Spark.CSharp.Interop.Ipc;
 using Microsoft.Spark.CSharp.Services;
 using Microsoft.Spark.CSharp.Sql;
@@ -16,9 +18,11 @@ namespace Microsoft.Spark.CSharp.Proxy.Ipc
     /// <summary>
     /// calling SparkCLR jvm side API
     /// </summary>
+    [ExcludeFromCodeCoverage] //IPC calls to JVM validated using validation-enabled samples - unit test coverage not reqiured
     internal class SparkCLRIpcProxy : ISparkCLRProxy
     {
         private SparkContextIpcProxy sparkContextProxy;
+        private StreamingContextIpcProxy streamingContextIpcProxy;
 
         private static readonly IJvmBridge jvmBridge = new JvmBridge();
         private readonly ILoggerService logger = LoggerServiceFactory.GetLogger(typeof(SparkCLRIpcProxy));
@@ -47,6 +51,8 @@ namespace Microsoft.Spark.CSharp.Proxy.Ipc
             JvmBridge.Dispose();
         }
         public ISparkContextProxy SparkContextProxy { get { return sparkContextProxy; } }
+
+        public IStreamingContextProxy StreamingContextProxy { get { return streamingContextIpcProxy; } }
         
         public ISparkConfProxy CreateSparkConf(bool loadDefaults = true)
         {
@@ -61,70 +67,29 @@ namespace Microsoft.Spark.CSharp.Proxy.Ipc
             return sparkContextProxy;
         }
 
-        public IStructFieldProxy CreateStructField(string name, string dataType, bool isNullable)
+        public bool CheckpointExists(string checkpointPath)
         {
-            return new StructFieldIpcProxy(
-                    new JvmObjectReference(
-                        JvmBridge.CallStaticJavaMethod(
-                            "org.apache.spark.sql.api.csharp.SQLUtils", "createStructField",
-                            new object[] { name, dataType, isNullable }).ToString()
-                        )
-                    );
+            if (checkpointPath == null)
+                return false;
+
+            var path = SparkCLRIpcProxy.JvmBridge.CallConstructor("org.apache.hadoop.fs.Path", checkpointPath);
+            var conf = SparkCLRIpcProxy.JvmBridge.CallConstructor("org.apache.hadoop.conf.Configuration");
+            var fs = new JvmObjectReference((string)SparkCLRIpcProxy.JvmBridge.CallNonStaticJavaMethod(path, "getFileSystem", conf));
+
+            return (bool)SparkCLRIpcProxy.JvmBridge.CallNonStaticJavaMethod(fs, "exists", path) &&
+                SparkCLRIpcProxy.JvmBridge.CallNonStaticJavaMethod(fs, "listStatus", path) != null;
         }
 
-        public IStructTypeProxy CreateStructType(List<StructField> fields)
+        public IStreamingContextProxy CreateStreamingContext(SparkContext sparkContext, long durationMs)
         {
-            var fieldsReference = fields.Select(s => (s.StructFieldProxy as StructFieldIpcProxy).JvmStructFieldReference).ToList().Cast<JvmObjectReference>();
-            
-            var seq =
-                new JvmObjectReference(
-                    JvmBridge.CallStaticJavaMethod("org.apache.spark.sql.api.csharp.SQLUtils",
-                        "toSeq", new object[] { fieldsReference }).ToString());
-
-            return new StructTypeIpcProxy(
-                    new JvmObjectReference(
-                        JvmBridge.CallStaticJavaMethod("org.apache.spark.sql.api.csharp.SQLUtils", "createStructType", new object[] { seq }).ToString()
-                        )
-                    );
+            streamingContextIpcProxy = new StreamingContextIpcProxy(sparkContext, durationMs);
+            return streamingContextIpcProxy;
         }
 
-        public IDStreamProxy CreateCSharpDStream(IDStreamProxy jdstream, byte[] func, string deserializer)
+        public IStreamingContextProxy CreateStreamingContext(string checkpointPath)
         {
-            var jvmDStreamReference = SparkCLRIpcProxy.JvmBridge.CallConstructor("org.apache.spark.streaming.api.csharp.CSharpDStream",
-                new object[] { (jdstream as DStreamIpcProxy).jvmDStreamReference, func, deserializer });
-
-            var javaDStreamReference = new JvmObjectReference((string)SparkCLRIpcProxy.JvmBridge.CallNonStaticJavaMethod(jvmDStreamReference, "asJavaDStream"));
-            return new DStreamIpcProxy(javaDStreamReference, jvmDStreamReference);
-        }
-
-        public IDStreamProxy CreateCSharpTransformed2DStream(IDStreamProxy jdstream, IDStreamProxy jother, byte[] func, string deserializer, string deserializerOther)
-        {
-            var jvmDStreamReference = SparkCLRIpcProxy.JvmBridge.CallConstructor("org.apache.spark.streaming.api.csharp.CSharpTransformed2DStream",
-                new object[] { (jdstream as DStreamIpcProxy).jvmDStreamReference, (jother as DStreamIpcProxy).jvmDStreamReference, func, deserializer, deserializerOther });
-
-            var javaDStreamReference = new JvmObjectReference((string)SparkCLRIpcProxy.JvmBridge.CallNonStaticJavaMethod(jvmDStreamReference, "asJavaDStream"));
-            return new DStreamIpcProxy(javaDStreamReference, jvmDStreamReference);
-        }
-
-        public IDStreamProxy CreateCSharpReducedWindowedDStream(IDStreamProxy jdstream, byte[] func, byte[] invFunc, int windowSeconds, int slideSeconds, string deserializer)
-        {
-            var windowDurationReference = SparkCLRIpcProxy.JvmBridge.CallConstructor("org.apache.spark.streaming.Duration", new object[] { windowSeconds * 1000 });
-            var slideDurationReference = SparkCLRIpcProxy.JvmBridge.CallConstructor("org.apache.spark.streaming.Duration", new object[] { slideSeconds * 1000 });
-
-            var jvmDStreamReference = SparkCLRIpcProxy.JvmBridge.CallConstructor("org.apache.spark.streaming.api.csharp.CSharpReducedWindowedDStream",
-                new object[] { (jdstream as DStreamIpcProxy).jvmDStreamReference, func, invFunc, windowDurationReference, slideDurationReference, deserializer });
-
-            var javaDStreamReference = new JvmObjectReference((string)SparkCLRIpcProxy.JvmBridge.CallNonStaticJavaMethod(jvmDStreamReference, "asJavaDStream"));
-            return new DStreamIpcProxy(javaDStreamReference, jvmDStreamReference);
-        }
-
-        public IDStreamProxy CreateCSharpStateDStream(IDStreamProxy jdstream, byte[] func, string deserializer)
-        {
-            var jvmDStreamReference = SparkCLRIpcProxy.JvmBridge.CallConstructor("org.apache.spark.streaming.api.csharp.CSharpStateDStream",
-                new object[] { (jdstream as DStreamIpcProxy).jvmDStreamReference, func, deserializer });
-
-            var javaDStreamReference = new JvmObjectReference((string)SparkCLRIpcProxy.JvmBridge.CallNonStaticJavaMethod(jvmDStreamReference, "asJavaDStream"));
-            return new DStreamIpcProxy(javaDStreamReference, jvmDStreamReference);
+            streamingContextIpcProxy = new StreamingContextIpcProxy(checkpointPath);
+            return streamingContextIpcProxy;
         }
     }
 }

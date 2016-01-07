@@ -19,35 +19,12 @@ namespace AdapterTest
     {
         private static RDD<string> words;
 
-        [TestFixtureSetUp]
+        [OneTimeSetUp]
         public static void Initialize()
         {
             var sparkContext = new SparkContext(null);
             var lines = sparkContext.TextFile(Path.GetTempFileName());
             words = lines.FlatMap(l => l.Split(' '));
-        }
-
-        [Test]
-        public void TestRddProxy()
-        {
-            words.Cache();
-            words.Persist(StorageLevelType.MEMORY_AND_DISK_SER_2);
-            words.Unpersist();
-            words.Checkpoint();
-            words.GetNumPartitions();
-            words.Sample(false, 0.0, 0L);
-            words.RandomSplit(null, 0L);
-            words.Union(words);
-            words.Cartesian(words);
-            words.Pipe(null);
-            words.Repartition(1);
-            words.Coalesce(1, false);
-            words.SetName(null);
-            words.RandomSampleWithRange(0.0, 0.0, 0L);
-            words.Zip(words);
-            words.ToDebugString();
-            words.Count();
-            words.SaveAsTextFile(null);
         }
 
         [Test]
@@ -183,13 +160,13 @@ namespace AdapterTest
             var rdd2 = rdd.Map(s => s.ToLower() + ".com");
             Assert.IsTrue(rdd2.GetType() == typeof(PipelinedRDD<string>));
             var pipelinedRdd = rdd2 as PipelinedRDD<string>;
-            var func = pipelinedRdd.func;
+            var func = pipelinedRdd.workerFunc.Func;
             var result = func(1, new String[] { "ABC" });
             var output = result.First();
             Assert.AreEqual("ABC".ToLower() + ".com", output);
 
             var pipelinedRdd2 = rdd2.Map(s => "HTTP://" + s) as PipelinedRDD<string>;
-            var func2 = pipelinedRdd2.func;
+            var func2 = pipelinedRdd2.workerFunc.Func;
             var result2 = func2(1, new String[] { "ABC" });
             var output2 = result2.First();
             Assert.AreEqual("HTTP://" + ("ABC".ToLower() + ".com"), output2); //tolower and ".com" appended first before adding prefix due to the way func2 wraps func in implementation

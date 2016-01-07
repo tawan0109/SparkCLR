@@ -1,13 +1,16 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Text;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using log4net;
 using log4net.Config;
 
 namespace Microsoft.Spark.CSharp.Services
 {
+    [ExcludeFromCodeCoverage] //unit test coverage not reqiured for logger service
     public class Log4NetLoggerService : ILoggerService
     {
         private readonly ILog logger;
@@ -22,6 +25,7 @@ namespace Microsoft.Spark.CSharp.Services
         public Log4NetLoggerService(Type type)
         {
             logger = LogManager.GetLogger(type);
+            log4net.GlobalContext.Properties["pid"] = Process.GetCurrentProcess().Id;
         }
 
         public void LogDebug(string message)

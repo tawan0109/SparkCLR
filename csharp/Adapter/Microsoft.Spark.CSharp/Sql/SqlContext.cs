@@ -8,6 +8,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Spark.CSharp.Core;
 using Microsoft.Spark.CSharp.Interop;
+using Microsoft.Spark.CSharp.Interop.Ipc;
 using Microsoft.Spark.CSharp.Proxy;
 
 namespace Microsoft.Spark.CSharp.Sql
@@ -28,6 +29,14 @@ namespace Microsoft.Spark.CSharp.Sql
         }
 
         /// <summary>
+        /// Returns a DataFrameReader that can be used to read data in as a DataFrame.
+        /// </summary>
+        public DataFrameReader Read()
+        {
+            return new DataFrameReader(sqlContextProxy.Read(), sparkContext);
+        }
+
+        /// <summary>
         /// Loads a dataframe the source path using the given schema and options
         /// </summary>
         /// <param name="path"></param>
@@ -39,9 +48,16 @@ namespace Microsoft.Spark.CSharp.Sql
             return new DataFrame(sqlContextProxy.ReadDataFrame(path, schema, options), sparkContext);
         }
 
-        public DataFrame CreateDataFrame(RDD<byte[]> rdd, StructType schema)
+        public DataFrame CreateDataFrame(RDD<object[]> rdd, StructType schema)
         {
-            throw new NotImplementedException();    
+            // Note: This is for pickling RDD, convert to RDD<byte[]> which happens in CSharpWorker. 
+            // The below sqlContextProxy.CreateDataFrame() will call byteArrayRDDToAnyArrayRDD() of SQLUtils.scala which only accept RDD of type RDD[Array[Byte]].
+            // In byteArrayRDDToAnyArrayRDD() of SQLUtils.scala, the SerDeUtil.pythonToJava() will be called which is a mapPartitions inside. 
+            // It will be executed until the CSharpWorker finishes Pickling to RDD[Array[Byte]].
+            var rddRow = rdd.Map(r => r);
+            rddRow.serializedMode = SerializedMode.Row;
+
+            return new DataFrame(sqlContextProxy.CreateDataFrame(rddRow.RddProxy, schema.StructTypeProxy), sparkContext); 
         }
 
         /// <summary>
@@ -73,7 +89,7 @@ namespace Microsoft.Spark.CSharp.Sql
         /// <returns></returns>
         public DataFrame JsonFile(string path, StructType schema)
         {
-            throw new NotImplementedException();
+            return Read().Schema(schema).Json(path);
         }
 
         /// <summary>
@@ -113,7 +129,7 @@ namespace Microsoft.Spark.CSharp.Sql
         public void RegisterFunction<RT>(string name, Func<RT> f)
         {
             Func<int, IEnumerable<dynamic>, IEnumerable<dynamic>> udfHelper = new UdfHelper<RT>(f).Execute;
-            sqlContextProxy.RegisterFunction(name, SparkContext.BuildCommand(udfHelper, SerializedMode.Row, SerializedMode.Row), Functions.GetReturnType(typeof(RT)));
+            sqlContextProxy.RegisterFunction(name, SparkContext.BuildCommand(new CSharpWorkerFunc(udfHelper), SerializedMode.Row, SerializedMode.Row), Functions.GetReturnType(typeof(RT)));
         }
 
         /// <summary>
@@ -128,7 +144,7 @@ namespace Microsoft.Spark.CSharp.Sql
         public void RegisterFunction<RT, A1>(string name, Func<A1, RT> f)
         {
             Func<int, IEnumerable<dynamic>, IEnumerable<dynamic>> udfHelper = new UdfHelper<RT, A1>(f).Execute;
-            sqlContextProxy.RegisterFunction(name, SparkContext.BuildCommand(udfHelper, SerializedMode.Row, SerializedMode.Row), Functions.GetReturnType(typeof(RT)));
+            sqlContextProxy.RegisterFunction(name, SparkContext.BuildCommand(new CSharpWorkerFunc(udfHelper), SerializedMode.Row, SerializedMode.Row), Functions.GetReturnType(typeof(RT)));
         }
 
         /// <summary>
@@ -144,7 +160,7 @@ namespace Microsoft.Spark.CSharp.Sql
         public void RegisterFunction<RT, A1, A2>(string name, Func<A1, A2, RT> f)
         {
             Func<int, IEnumerable<dynamic>, IEnumerable<dynamic>> udfHelper = new UdfHelper<RT, A1, A2>(f).Execute;
-            sqlContextProxy.RegisterFunction(name, SparkContext.BuildCommand(udfHelper, SerializedMode.Row, SerializedMode.Row), Functions.GetReturnType(typeof(RT)));
+            sqlContextProxy.RegisterFunction(name, SparkContext.BuildCommand(new CSharpWorkerFunc(udfHelper), SerializedMode.Row, SerializedMode.Row), Functions.GetReturnType(typeof(RT)));
         }
 
         /// <summary>
@@ -161,7 +177,7 @@ namespace Microsoft.Spark.CSharp.Sql
         public void RegisterFunction<RT, A1, A2, A3>(string name, Func<A1, A2, A3, RT> f)
         {
             Func<int, IEnumerable<dynamic>, IEnumerable<dynamic>> udfHelper = new UdfHelper<RT, A1, A2, A3>(f).Execute;
-            sqlContextProxy.RegisterFunction(name, SparkContext.BuildCommand(udfHelper, SerializedMode.Row, SerializedMode.Row), Functions.GetReturnType(typeof(RT)));
+            sqlContextProxy.RegisterFunction(name, SparkContext.BuildCommand(new CSharpWorkerFunc(udfHelper), SerializedMode.Row, SerializedMode.Row), Functions.GetReturnType(typeof(RT)));
         }
 
         /// <summary>
@@ -179,7 +195,7 @@ namespace Microsoft.Spark.CSharp.Sql
         public void RegisterFunction<RT, A1, A2, A3, A4>(string name, Func<A1, A2, A3, A4, RT> f)
         {
             Func<int, IEnumerable<dynamic>, IEnumerable<dynamic>> udfHelper = new UdfHelper<RT, A1, A2, A3, A4>(f).Execute;
-            sqlContextProxy.RegisterFunction(name, SparkContext.BuildCommand(udfHelper, SerializedMode.Row, SerializedMode.Row), Functions.GetReturnType(typeof(RT)));
+            sqlContextProxy.RegisterFunction(name, SparkContext.BuildCommand(new CSharpWorkerFunc(udfHelper), SerializedMode.Row, SerializedMode.Row), Functions.GetReturnType(typeof(RT)));
         }
 
         /// <summary>
@@ -198,7 +214,7 @@ namespace Microsoft.Spark.CSharp.Sql
         public void RegisterFunction<RT, A1, A2, A3, A4, A5>(string name, Func<A1, A2, A3, A4, A5, RT> f)
         {
             Func<int, IEnumerable<dynamic>, IEnumerable<dynamic>> udfHelper = new UdfHelper<RT, A1, A2, A3, A4, A5>(f).Execute;
-            sqlContextProxy.RegisterFunction(name, SparkContext.BuildCommand(udfHelper, SerializedMode.Row, SerializedMode.Row), Functions.GetReturnType(typeof(RT)));
+            sqlContextProxy.RegisterFunction(name, SparkContext.BuildCommand(new CSharpWorkerFunc(udfHelper), SerializedMode.Row, SerializedMode.Row), Functions.GetReturnType(typeof(RT)));
         }
 
         /// <summary>
@@ -218,7 +234,7 @@ namespace Microsoft.Spark.CSharp.Sql
         public void RegisterFunction<RT, A1, A2, A3, A4, A5, A6>(string name, Func<A1, A2, A3, A4, A5, A6, RT> f)
         {
             Func<int, IEnumerable<dynamic>, IEnumerable<dynamic>> udfHelper = new UdfHelper<RT, A1, A2, A3, A4, A5, A6>(f).Execute;
-            sqlContextProxy.RegisterFunction(name, SparkContext.BuildCommand(udfHelper, SerializedMode.Row, SerializedMode.Row), Functions.GetReturnType(typeof(RT)));
+            sqlContextProxy.RegisterFunction(name, SparkContext.BuildCommand(new CSharpWorkerFunc(udfHelper), SerializedMode.Row, SerializedMode.Row), Functions.GetReturnType(typeof(RT)));
         }
 
         /// <summary>
@@ -239,7 +255,7 @@ namespace Microsoft.Spark.CSharp.Sql
         public void RegisterFunction<RT, A1, A2, A3, A4, A5, A6, A7>(string name, Func<A1, A2, A3, A4, A5, A6, A7, RT> f)
         {
             Func<int, IEnumerable<dynamic>, IEnumerable<dynamic>> udfHelper = new UdfHelper<RT, A1, A2, A3, A4, A5, A6, A7>(f).Execute;
-            sqlContextProxy.RegisterFunction(name, SparkContext.BuildCommand(udfHelper, SerializedMode.Row, SerializedMode.Row), Functions.GetReturnType(typeof(RT)));
+            sqlContextProxy.RegisterFunction(name, SparkContext.BuildCommand(new CSharpWorkerFunc(udfHelper), SerializedMode.Row, SerializedMode.Row), Functions.GetReturnType(typeof(RT)));
         }
 
         /// <summary>
@@ -261,7 +277,7 @@ namespace Microsoft.Spark.CSharp.Sql
         public void RegisterFunction<RT, A1, A2, A3, A4, A5, A6, A7, A8>(string name, Func<A1, A2, A3, A4, A5, A6, A7, A8, RT> f)
         {
             Func<int, IEnumerable<dynamic>, IEnumerable<dynamic>> udfHelper = new UdfHelper<RT, A1, A2, A3, A4, A5, A6, A7, A8>(f).Execute;
-            sqlContextProxy.RegisterFunction(name, SparkContext.BuildCommand(udfHelper, SerializedMode.Row, SerializedMode.Row), Functions.GetReturnType(typeof(RT)));
+            sqlContextProxy.RegisterFunction(name, SparkContext.BuildCommand(new CSharpWorkerFunc(udfHelper), SerializedMode.Row, SerializedMode.Row), Functions.GetReturnType(typeof(RT)));
         }
 
         /// <summary>
@@ -284,7 +300,7 @@ namespace Microsoft.Spark.CSharp.Sql
         public void RegisterFunction<RT, A1, A2, A3, A4, A5, A6, A7, A8, A9>(string name, Func<A1, A2, A3, A4, A5, A6, A7, A8, A9, RT> f)
         {
             Func<int, IEnumerable<dynamic>, IEnumerable<dynamic>> udfHelper = new UdfHelper<RT, A1, A2, A3, A4, A5, A6, A7, A8, A9>(f).Execute;
-            sqlContextProxy.RegisterFunction(name, SparkContext.BuildCommand(udfHelper, SerializedMode.Row, SerializedMode.Row), Functions.GetReturnType(typeof(RT)));
+            sqlContextProxy.RegisterFunction(name, SparkContext.BuildCommand(new CSharpWorkerFunc(udfHelper), SerializedMode.Row, SerializedMode.Row), Functions.GetReturnType(typeof(RT)));
         }
 
         /// <summary>
@@ -308,7 +324,7 @@ namespace Microsoft.Spark.CSharp.Sql
         public void RegisterFunction<RT, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10>(string name, Func<A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, RT> f)
         {
             Func<int, IEnumerable<dynamic>, IEnumerable<dynamic>> udfHelper = new UdfHelper<RT, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10>(f).Execute;
-            sqlContextProxy.RegisterFunction(name, SparkContext.BuildCommand(udfHelper, SerializedMode.Row, SerializedMode.Row), Functions.GetReturnType(typeof(RT)));
+            sqlContextProxy.RegisterFunction(name, SparkContext.BuildCommand(new CSharpWorkerFunc(udfHelper), SerializedMode.Row, SerializedMode.Row), Functions.GetReturnType(typeof(RT)));
         }
         #endregion
     }

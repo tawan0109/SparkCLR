@@ -37,7 +37,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="log4net">
-      <HintPath>..\..\packages\log4net.2.0.3\lib\net40-full\log4net.dll</HintPath>
+      <HintPath>..\..\packages\log4net.2.0.5\lib\net45-full\log4net.dll</HintPath>
     </Reference>
     <Reference Include="Newtonsoft.Json">
       <HintPath>..\..\packages\Newtonsoft.Json.7.0.1\lib\net45\Newtonsoft.Json.dll</HintPath>
@@ -63,7 +63,9 @@
     <Compile Include="Configuration\IConfigurationService.cs" />
     <Compile Include="Core\Accumulator.cs" />
     <Compile Include="Core\Broadcast.cs" />
+    <Compile Include="Core\RDDCollector.cs" />
     <Compile Include="Core\DoubleRDDFunctions.cs" />
+    <Compile Include="Core\IRDDCollector.cs" />
     <Compile Include="Core\OrderedRDDFunctions.cs" />
     <Compile Include="Core\PairRDDFunctions.cs" />
     <Compile Include="Core\PipelinedRDD.cs" />
@@ -74,15 +76,23 @@
     <Compile Include="Core\StatCounter.cs" />
     <Compile Include="Core\StatusTracker.cs" />
     <Compile Include="Core\StorageLevel.cs" />
+    <Compile Include="Interop\Ipc\JsonSerDe.cs" />
     <Compile Include="Interop\SparkCLREnvironment.cs" />
     <Compile Include="Interop\Ipc\IJvmBridge.cs" />
     <Compile Include="Interop\Ipc\JvmBridge.cs" />
     <Compile Include="Interop\Ipc\JvmObjectReference.cs" />
     <Compile Include="Interop\Ipc\PayloadHelper.cs" />
     <Compile Include="Interop\Ipc\SerDe.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Proxy\IDataFrameNaFunctionsProxy.cs" />
     <Compile Include="Proxy\IDataFrameProxy.cs" />
+    <Compile Include="Proxy\IDataFrameReaderProxy.cs" />
+    <Compile Include="Proxy\IDataFrameWriterProxy.cs" />
     <Compile Include="Proxy\IDStreamProxy.cs" />
     <Compile Include="Proxy\Ipc\DataFrameIpcProxy.cs" />
+    <Compile Include="Proxy\Ipc\DataFrameNaFunctionsIpcProxy.cs" />
+    <Compile Include="Proxy\Ipc\DataFrameReaderIpcProxy.cs" />
+    <Compile Include="Proxy\Ipc\DataFrameWriterIpcProxy.cs" />
     <Compile Include="Proxy\Ipc\DStreamIpcProxy.cs" />
     <Compile Include="Proxy\Ipc\RDDIpcProxy.cs" />
     <Compile Include="Proxy\Ipc\SparkCLRIpcProxy.cs" />
@@ -106,19 +116,24 @@
     <Compile Include="Services\LoggerServiceFactory.cs" />
     <Compile Include="Sql\Column.cs" />
     <Compile Include="Sql\DataFrame.cs" />
+    <Compile Include="Sql\DataFrameNaFunctions.cs" />
+    <Compile Include="Sql\DataFrameReader.cs" />
+    <Compile Include="Sql\DataFrameWriter.cs" />
+    <Compile Include="Sql\PythonSerDe.cs" />
+    <Compile Include="Sql\RowConstructor.cs" />
     <Compile Include="Sql\Row.cs" />
     <Compile Include="Sql\Functions.cs" />
+    <Compile Include="Sql\SaveMode.cs" />
     <Compile Include="Sql\SqlContext.cs" />
-    <Compile Include="Sql\Struct.cs" />
+    <Compile Include="Sql\Types.cs" />
     <Compile Include="Sql\UserDefinedFunction.cs" />
     <Compile Include="Streaming\DStream.cs" />
+    <Compile Include="Streaming\Kafka.cs" />
     <Compile Include="Streaming\PairDStreamFunctions.cs" />
     <Compile Include="Streaming\StreamingContext.cs" />
     <Compile Include="Streaming\TransformedDStream.cs" />
   </ItemGroup>
-  <ItemGroup>
-    <Folder Include="Properties\" />
-  </ItemGroup>
+  <ItemGroup />
   <ItemGroup>
     <None Include="packages.config" />
   </ItemGroup>

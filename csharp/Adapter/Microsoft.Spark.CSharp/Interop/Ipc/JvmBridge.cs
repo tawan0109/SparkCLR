@@ -4,8 +4,10 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using Microsoft.Spark.CSharp.Services;
 
 namespace Microsoft.Spark.CSharp.Interop.Ipc
@@ -15,6 +17,7 @@ namespace Microsoft.Spark.CSharp.Interop.Ipc
     /// throught a concourrent socket connection queue (lightweight synchronisation mechanism)
     /// supporting async JVM calls like StreamingContext.AwaitTermination()
     /// </summary>
+    [ExcludeFromCodeCoverage] //IPC calls to JVM validated using validation-enabled samples - unit test coverage not reqiured
     internal class JvmBridge : IJvmBridge
     {
         private int portNumber;
@@ -32,7 +35,7 @@ namespace Microsoft.Spark.CSharp.Interop.Ipc
             if (!sockets.TryDequeue(out socket))
             {
                 socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                socket.Connect(IPAddress.Parse("127.0.0.1"), portNumber);
+                socket.Connect(IPAddress.Loopback, portNumber);
             }
             return socket;
         }
@@ -79,7 +82,7 @@ namespace Microsoft.Spark.CSharp.Interop.Ipc
                     if (isMethodCallFailed != 0)
                     {
                         var jvmFullStackTrace = SerDe.ReadString(s);
-                        string errorMessage = string.Format("JVM method execution failed: {0}", methodName);
+                        var errorMessage = BuildErrorMessage(isStatic, classNameOrJvmObjectReference, methodName, parameters);
                         logger.LogError(errorMessage);
                         logger.LogError(jvmFullStackTrace);
                         throw new Exception(errorMessage);
@@ -132,6 +135,76 @@ namespace Microsoft.Spark.CSharp.Interop.Ipc
 
             return returnValue;
 
+        }
+
+        private string BuildErrorMessage(bool isStatic, object classNameOrJvmObjectReference, string methodName, object[] parameters)
+        {
+            var errorMessage = new StringBuilder("JVM method execution failed: ");
+            const string constructorFormat = "Constructor failed for class {0}";
+            const string staticMethodFormat = "Static method {0} failed for class {1}";
+            const string nonStaticMethodFormat = "Nonstatic method {0} failed for class {1}";
+
+            try
+            {
+                if (isStatic)
+                {
+                    if (methodName.Equals("<init>")) //<init> is hardcoded in CSharpBackend
+                    {
+                        errorMessage.AppendFormat(constructorFormat, classNameOrJvmObjectReference);
+                    }
+                    else
+                    {
+                        errorMessage.AppendFormat(staticMethodFormat, methodName, classNameOrJvmObjectReference);
+                    }
+                }
+                else
+                {
+                    errorMessage.AppendFormat(nonStaticMethodFormat, methodName, classNameOrJvmObjectReference);
+                }
+
+                if (parameters.Length == 0)
+                {
+                    errorMessage.Append(" when called with no parameters");
+                }
+                else
+                {
+                    errorMessage.AppendFormat(" when called with {0} parameters ({1})", parameters.Length, GetParamsAsString(parameters));
+                }
+            }
+            catch (Exception)
+            {
+                errorMessage.Append("Exception when converting building error message");
+            }
+
+            return errorMessage.ToString();
+        }
+
+        private string GetParamsAsString(IEnumerable<object> parameters)
+        {
+            var paramsString = new StringBuilder();
+
+            try
+            {
+                int index = 1;
+                foreach (var parameter in parameters)
+                {
+                    var paramValue = "null";
+                    var paramType = "null";
+                    if (parameter != null)
+                    {
+                        paramValue = parameter.ToString();
+                        paramType = parameter.GetType().Name;
+                    }
+
+                    paramsString.AppendFormat("[Index={0}, Type={1}, Value={2}], ", index++, paramType, paramValue);
+                }
+            }
+            catch (Exception)
+            {
+                paramsString.Append("Exception when converting parameters to string");
+            }
+
+            return paramsString.ToString();
         }
 
         private object ReadJvmObjectReferenceCollection(NetworkStream s)

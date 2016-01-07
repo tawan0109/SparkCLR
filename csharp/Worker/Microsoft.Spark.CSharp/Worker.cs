@@ -6,16 +6,19 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
+using System.Diagnostics;
+using System.Linq;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Formatters.Binary;
-
+using System.Text;
 using Microsoft.Spark.CSharp.Core;
 using Microsoft.Spark.CSharp.Interop.Ipc;
 using Microsoft.Spark.CSharp.Services;
-
+using Microsoft.Spark.CSharp.Sql;
 using Razorvine.Pickle;
+using Razorvine.Pickle.Objects;
 
 namespace Microsoft.Spark.CSharp
 {
@@ -47,7 +50,7 @@ namespace Microsoft.Spark.CSharp
                 int javaPort = int.Parse(Console.ReadLine());
                 logger.LogInfo("java_port: " + javaPort);
                 sock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                sock.Connect(IPAddress.Parse("127.0.0.1"), javaPort);
+                sock.Connect(IPAddress.Loopback, javaPort);
             }
             catch (Exception e)
             {
@@ -116,13 +119,22 @@ namespace Microsoft.Spark.CSharp
 
                     Accumulator.accumulatorRegistry.Clear();
 
-                    int lengthOCommandByteArray = SerDe.ReadInt(s);
-                    logger.LogInfo("command_len: " + lengthOCommandByteArray);
+                    int lengthOfCommandByteArray = SerDe.ReadInt(s);
+                    logger.LogInfo("command length: " + lengthOfCommandByteArray);
 
                     IFormatter formatter = new BinaryFormatter();
 
-                    if (lengthOCommandByteArray > 0)
+                    if (lengthOfCommandByteArray > 0)
                     {
+                        Stopwatch commandProcessWatch = new Stopwatch();
+                        Stopwatch funcProcessWatch = new Stopwatch();
+                        commandProcessWatch.Start();
+
+                        int rddId = SerDe.ReadInt(s);
+                        int stageId = SerDe.ReadInt(s);
+                        int partitionId = SerDe.ReadInt(s);
+                        logger.LogInfo(string.Format("rddInfo: rddId {0}, stageId {1}, partitionId {2}", rddId, stageId, partitionId));
+
                         string deserializerMode = SerDe.ReadString(s);
                         logger.LogInfo("Deserializer mode: " + deserializerMode);
 
@@ -134,13 +146,38 @@ namespace Microsoft.Spark.CSharp
                         logger.LogInfo("command bytes read: " + command.Length);
                         var stream = new MemoryStream(command);
 
-                        var func = (Func<int, IEnumerable<dynamic>, IEnumerable<dynamic>>)formatter.Deserialize(stream);
-
+                        var workerFunc = (CSharpWorkerFunc)formatter.Deserialize(stream);
+                        var func = workerFunc.Func;
+                        logger.LogDebug(string.Format("stack trace of workerFunc (dont't panic, this is just for debug):\n{0}", workerFunc.StackTrace));
                         DateTime initTime = DateTime.UtcNow;
-
                         int count = 0;
-                        foreach (var message in func(splitIndex, GetIterator(s, deserializerMode)))
+
+                        // here we use low level API because we need to get perf metrics
+                        WorkerInputEnumerator inputEnumerator = new WorkerInputEnumerator(s, deserializerMode);
+                        IEnumerable<dynamic> inputEnumerable = Enumerable.Cast<dynamic>(inputEnumerator);
+                        funcProcessWatch.Start();
+                        IEnumerable<dynamic> outputEnumerable = func(splitIndex, inputEnumerable);
+                        var outputEnumerator = outputEnumerable.GetEnumerator();
+                        funcProcessWatch.Stop();
+                        while (true)
                         {
+                            funcProcessWatch.Start();
+                            bool hasNext = outputEnumerator.MoveNext();
+                            funcProcessWatch.Stop();
+                            if (!hasNext)
+                            {
+                                break;
+                            }
+
+                            funcProcessWatch.Start();
+                            var message = outputEnumerator.Current;
+                            funcProcessWatch.Stop();
+
+                            if (object.ReferenceEquals(null, message))
+                            {
+                                continue;
+                            }
+
                             byte[] buffer;
 
                             if (serializerMode == "None")
@@ -195,6 +232,13 @@ namespace Microsoft.Spark.CSharp
 
                         SerDe.Write(s, 0L); //shuffle.MemoryBytesSpilled  
                         SerDe.Write(s, 0L); //shuffle.DiskBytesSpilled
+
+                        commandProcessWatch.Stop();
+
+                        // log statistics
+                        inputEnumerator.LogStatistic();
+                        logger.LogInfo(string.Format("func process time: {0}", funcProcessWatch.ElapsedMilliseconds));
+                        logger.LogInfo(string.Format("command process time: {0}", commandProcessWatch.ElapsedMilliseconds));
                     }
                     else
                     {
@@ -219,7 +263,7 @@ namespace Microsoft.Spark.CSharp
                     int end = SerDe.ReadInt(s);
 
                     // check end of stream
-                    if (end == (int)SpecialLengths.END_OF_DATA_SECTION || end == (int)SpecialLengths.END_OF_STREAM)
+                    if (end == (int)SpecialLengths.END_OF_STREAM)
                     {
                         SerDe.Write(s, (int)SpecialLengths.END_OF_STREAM);
                         logger.LogInfo("END_OF_STREAM: " + (int)SpecialLengths.END_OF_STREAM);
@@ -231,9 +275,15 @@ namespace Microsoft.Spark.CSharp
                         Environment.Exit(-1);
                     }
                     s.Flush();
+
+                    // log bytes read and write
+                    logger.LogInfo(string.Format("total read bytes: {0}", SerDe.totalReadNum));
+                    logger.LogInfo(string.Format("total write bytes: {0}", SerDe.totalWriteNum));
+
                     // wait for server to complete, otherwise server gets 'connection reset' exception
-                    // TODO: need to detect java side has closed socket properly
-                    System.Threading.Thread.Sleep(1000);
+                    // Use SerDe.ReadBytes() to detect java side has closed socket properly
+                    // ReadBytes() will block until the socket is closed
+                    SerDe.ReadBytes(s);
                 }
                 catch (Exception e)
                 {
@@ -273,48 +323,163 @@ namespace Microsoft.Spark.CSharp
         {
             return (long)(dt - UnixTimeEpoch).TotalMilliseconds;
         }
+    }
 
-        private static IEnumerable<dynamic> GetIterator(Stream s, string serializedMode)
+    // Get worker input data from input stream
+    internal class WorkerInputEnumerator : IEnumerator, IEnumerable
+    {
+        private static readonly ILoggerService logger = LoggerServiceFactory.GetLogger(typeof(WorkerInputEnumerator));
+
+        private readonly Stream inputStream;
+        private readonly string deserializedMode;
+
+        // cache deserialized object read from input stream
+        private object[] items = null;
+        private int pos = 0;
+
+        private readonly IFormatter formatter = new BinaryFormatter();
+        private readonly Stopwatch watch = new Stopwatch();
+
+        public WorkerInputEnumerator(Stream inputStream, string deserializedMode)
         {
-            logger.LogInfo("Serialized mode in GetIterator: " + serializedMode);
-            IFormatter formatter = new BinaryFormatter();
-            int messageLength;
-            while ((messageLength = SerDe.ReadInt(s)) != (int)SpecialLengths.END_OF_DATA_SECTION)
+            this.inputStream = inputStream;
+            this.deserializedMode = deserializedMode;
+        }
+
+        public bool MoveNext()
+        {
+            watch.Start();
+            bool hasNext;
+
+            if ((items != null) && (pos < items.Length))
             {
-                if (messageLength > 0 || serializedMode == "Pair")
+                hasNext = true;
+            }
+            else
+            {
+                int messageLength = SerDe.ReadInt(inputStream);
+                if (messageLength == (int)SpecialLengths.END_OF_DATA_SECTION)
                 {
-                    byte[] buffer = messageLength > 0 ? SerDe.ReadBytes(s, messageLength) : null;
-                    switch (serializedMode)
-                    {
-                        case "String":
-                            yield return SerDe.ToString(buffer);
-                            break;
-
-                        case "Row":
-                            Unpickler unpickler = new Unpickler();
-                            foreach (var item in (unpickler.loads(buffer) as object[]))
-                            {
-                                yield return item;
-                            }
-                            break;
-
-                        case "Pair":
-                            messageLength = SerDe.ReadInt(s);
-                            if (messageLength > 0)
-                            {
-                                yield return new KeyValuePair<byte[], byte[]>(buffer, SerDe.ReadBytes(s, messageLength));
-                            }
-                            break;
-
-                        case "Byte":
-                        default:
-                            var ms = new MemoryStream(buffer);
-                            dynamic message = formatter.Deserialize(ms);
-                            yield return message;
-                            break;
-                    }
+                    hasNext = false;
+                    logger.LogInfo("END_OF_DATA_SECTION");
+                }
+                else if ((messageLength > 0) || (messageLength == (int)SpecialLengths.NULL))
+                {
+                    items = GetNext(messageLength);
+                    Debug.Assert(items != null);
+                    Debug.Assert(items.Any());
+                    pos = 0;
+                    hasNext = true;
+                }
+                else
+                {
+                    throw new Exception(string.Format("unexpected messageLength: {0}", messageLength));
                 }
             }
+
+            watch.Stop();
+            return hasNext;
+        }
+
+        public object Current
+        {
+            get
+            {
+                int currPos = pos;
+                pos++;
+                return items[currPos];
+            }
+        }
+
+        public void Reset()
+        {
+            throw new NotImplementedException();
+        }
+
+        public IEnumerator GetEnumerator()
+        {
+            return this;
+        }
+
+        public void LogStatistic()
+        {
+            logger.LogInfo(string.Format("total elapsed time: {0}", watch.ElapsedMilliseconds));
+        }
+
+        private object[] GetNext(int messageLength)
+        {
+            object[] result = null;
+            switch (deserializedMode)
+            {
+                case "String":
+                    {
+                        result = new object[1];
+                        if (messageLength > 0)
+                        {
+                            byte[] buffer = SerDe.ReadBytes(inputStream, messageLength);
+                            result[0] = SerDe.ToString(buffer);
+                        }
+                        else
+                        {
+                            result[0] = null;
+                        }
+                        break;
+                    }
+
+                case "Row":
+                    {
+                        Debug.Assert(messageLength > 0);
+                        byte[] buffer = SerDe.ReadBytes(inputStream, messageLength);
+                        var unpickledObjects = PythonSerDe.GetUnpickledObjects(buffer);
+                        var rows = unpickledObjects.Select(item => (item as RowConstructor).GetRow()).ToList();
+                        result = rows.Cast<object>().ToArray();
+                        break;
+                    }
+
+                case "Pair":
+                    {
+                        byte[] pairKey = (messageLength > 0) ? SerDe.ReadBytes(inputStream, messageLength) : null;
+                        byte[] pairValue = null;
+
+                        int valueLength = SerDe.ReadInt(inputStream);
+                        if (valueLength > 0)
+                        {
+                            pairValue = SerDe.ReadBytes(inputStream, valueLength);
+                        }
+                        else if (valueLength == (int)SpecialLengths.NULL)
+                        {
+                            pairValue = null;
+                        }
+                        else
+                        {
+                            throw new Exception(string.Format("unexpected valueLength: {0}", valueLength));
+                        }
+
+                        result = new object[1];
+                        result[0] = new KeyValuePair<byte[], byte[]>(pairKey, pairValue);
+                        break;
+                    }
+
+                case "Byte":
+                default:
+                    {
+                        result = new object[1];
+                        if (messageLength > 0)
+                        {
+                            byte[] buffer = SerDe.ReadBytes(inputStream, messageLength);
+                            var ms = new MemoryStream(buffer);
+                            result[0] = formatter.Deserialize(ms);
+                        }
+                        else
+                        {
+                            result[0] = null;
+                        }
+
+                        break;
+                    }
+            }
+
+            return result;
         }
     }
 }

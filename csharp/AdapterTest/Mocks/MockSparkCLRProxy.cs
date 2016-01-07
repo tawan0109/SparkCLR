@@ -17,8 +17,6 @@ namespace AdapterTest.Mocks
 {
     internal class MockSparkCLRProxy : ISparkCLRProxy
     {
-        private IFormatter formatter = new BinaryFormatter();
-
         public ISparkConfProxy CreateSparkConf(bool loadDefaults = true)
         {
             return new MockSparkConfProxy();
@@ -44,56 +42,32 @@ namespace AdapterTest.Mocks
             return new MockSparkContextProxy(conf);
         }
 
-
-        public IStructFieldProxy CreateStructField(string name, string dataType, bool isNullable)
-        {
-            throw new NotImplementedException();
-        }
-
-        public IStructTypeProxy CreateStructType(List<StructField> fields)
-        {
-            throw new NotImplementedException();
-        }
-
         public ISparkContextProxy SparkContextProxy
         {
             get { throw new NotImplementedException(); }
         }
 
-        public IDStreamProxy CreateCSharpDStream(IDStreamProxy jdstream, byte[] func, string deserializer)
+        private IStreamingContextProxy streamingContextProxy;
+        public IStreamingContextProxy StreamingContextProxy
         {
-            Func<double, RDD<dynamic>, RDD<dynamic>> f = (Func<double, RDD<dynamic>, RDD<dynamic>>)formatter.Deserialize(new MemoryStream(func));
-            RDD<dynamic> rdd = f(DateTime.UtcNow.Ticks,
-                new RDD<dynamic>((jdstream as MockDStreamProxy).rddProxy ?? new MockRddProxy(null), new SparkContext("", "")));
-            return new MockDStreamProxy(rdd.RddProxy);
+            get { return streamingContextProxy; }
         }
 
-        public IDStreamProxy CreateCSharpTransformed2DStream(IDStreamProxy jdstream, IDStreamProxy jother, byte[] func, string deserializer, string deserializerOther)
+        public bool CheckpointExists(string checkpointPath)
         {
-            Func<double, RDD<dynamic>, RDD<dynamic>, RDD<dynamic>> f = (Func<double, RDD<dynamic>, RDD<dynamic>, RDD<dynamic>>)formatter.Deserialize(new MemoryStream(func));
-            RDD<dynamic> rdd = f(DateTime.UtcNow.Ticks,
-                new RDD<dynamic>((jdstream as MockDStreamProxy).rddProxy ?? new MockRddProxy(null), new SparkContext("", "")),
-                new RDD<dynamic>((jother as MockDStreamProxy).rddProxy ?? new MockRddProxy(null), new SparkContext("", "")));
-            return new MockDStreamProxy(rdd.RddProxy);
+            return false;
         }
 
-        public IDStreamProxy CreateCSharpReducedWindowedDStream(IDStreamProxy jdstream, byte[] func, byte[] invFunc, int windowSeconds, int slideSeconds, string deserializer)
+        public IStreamingContextProxy CreateStreamingContext(SparkContext sparkContext, long durationMs)
         {
-            Func<double, RDD<dynamic>, RDD<dynamic>, RDD<dynamic>> f = (Func<double, RDD<dynamic>, RDD<dynamic>, RDD<dynamic>>)formatter.Deserialize(new MemoryStream(func));
-            RDD<dynamic> rdd = f(DateTime.UtcNow.Ticks,
-                new RDD<dynamic>((jdstream as MockDStreamProxy).rddProxy ?? new MockRddProxy(null), new SparkContext("", "")),
-                new RDD<dynamic>((jdstream as MockDStreamProxy).rddProxy ?? new MockRddProxy(null), new SparkContext("", "")));
-            return new MockDStreamProxy(rdd.RddProxy);
+            streamingContextProxy = new MockStreamingContextProxy();
+            return streamingContextProxy;
         }
 
-
-        public IDStreamProxy CreateCSharpStateDStream(IDStreamProxy jdstream, byte[] func, string deserializer)
+        public IStreamingContextProxy CreateStreamingContext(string checkpointPath)
         {
-            Func<double, RDD<dynamic>, RDD<dynamic>, RDD<dynamic>> f = (Func<double, RDD<dynamic>, RDD<dynamic>, RDD<dynamic>>)formatter.Deserialize(new MemoryStream(func));
-            RDD<dynamic> rdd = f(DateTime.UtcNow.Ticks,
-                new RDD<dynamic>((jdstream as MockDStreamProxy).rddProxy ?? new MockRddProxy(null), new SparkContext("", "")),
-                new RDD<dynamic>((jdstream as MockDStreamProxy).rddProxy ?? new MockRddProxy(null), new SparkContext("", "")));
-            return new MockDStreamProxy(rdd.RddProxy);
+            streamingContextProxy = new MockStreamingContextProxy();
+            return streamingContextProxy;
         }
     }
 }

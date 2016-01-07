@@ -7,7 +7,7 @@ call precheck.cmd
 if %precheck% == "bad" (goto :eof)
 
 @rem Windows 7/8/10 may not allow powershell scripts by default
-powershell -Command Set-ExecutionPolicy Unrestricted
+powershell -Command Set-ExecutionPolicy -Scope CurrentUser Unrestricted
 
 @rem download build tools
 pushd %~dp0
@@ -24,7 +24,7 @@ set SPARKCLR_HOME=%CMDHOME%\run
 
 if EXIST "%SPARKCLR_HOME%" (
     @echo Delete existing %SPARKCLR_HOME% ...
-    rd /s /q %SPARKCLR_HOME%
+    rd /s /q "%SPARKCLR_HOME%"
 )
 
 if NOT EXIST "%SPARKCLR_HOME%" mkdir "%SPARKCLR_HOME%"
@@ -41,18 +41,12 @@ pushd "%CMDHOME%\scala"
 call mvn.cmd clean
 
 @rem
-@rem Note: Shade-plugin helps creates an uber-package to simplify sparkCLR job submission;
-@rem however, it breaks debug mode in IntellJ. A temporary workaroud to add shade-plugin
+@rem Note: Shade-plugin helps creates an uber-package to simplify SparkCLR job submission;
+@rem however, it breaks debug mode in IntellJ. So enable shade-plugin
 @rem only in build.cmd to create the uber-package.
 @rem
-copy /y pom.xml %temp%\pom.xml.original
-powershell -f ..\scripts\addotherplugin.ps1 pom.xml other-plugin.xml "<!--OTHER PLUGINS-->"
 @rem build the package
-call mvn.cmd package
-@rem
-@rem After uber package is created, restore Pom.xml
-@rem
-copy /y %temp%\pom.xml.original pom.xml
+call mvn.cmd package -Puber-jar
 
 if %ERRORLEVEL% NEQ 0 (
 	@echo Build SparkCLR Scala components failed, stop building.
@@ -105,5 +99,5 @@ popd
 @echo zip run directory
 pushd %~dp0
 if not exist ".\target" (mkdir .\target)
-powershell -f .\scripts\zipdir.ps1 -dir %SPARKCLR_HOME% -target ".\target\run.zip"
+powershell -f .\scripts\zipdir.ps1 -dir "%SPARKCLR_HOME%" -target ".\target\run.zip"
 popd

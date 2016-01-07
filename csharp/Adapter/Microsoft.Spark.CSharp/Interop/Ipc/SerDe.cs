@@ -24,6 +24,9 @@ namespace Microsoft.Spark.CSharp.Interop.Ipc
     /// </summary>
     public class SerDe //TODO - add ToBytes() for other types
     {
+        public static long totalReadNum = 0;
+        public static long totalWriteNum = 0;
+
         public static byte[] ToBytes(bool value)
         {
             return new[] { System.Convert.ToByte(value) };
@@ -66,8 +69,12 @@ namespace Microsoft.Spark.CSharp.Interop.Ipc
 
         public static int ToInt(byte[] value)
         {
-            return BitConverter.ToInt32(value, 0);
-        }
+            return //Netty byte order is BigEndian
+                (int)value[3] |
+                (int)value[2] << 8 |
+                (int)value[1] << 16 |
+                (int)value[0] << 24;
+        } 
 
         public static int Convert(int value)
         {
@@ -92,13 +99,8 @@ namespace Microsoft.Spark.CSharp.Interop.Ipc
 
         public static int ReadInt(Stream s)
         {
-            byte[] buffer = ReadBytes(s, 4);
-            return //Netty byte order is BigEndian
-                (int)buffer[3] | 
-                (int)buffer[2] << 8 | 
-                (int)buffer[1] << 16 | 
-                (int)buffer[0] << 24;
-        }
+            return ToInt(ReadBytes(s, 4));
+        } 
         
         public static long ReadLong(Stream s)
         {
@@ -145,17 +147,29 @@ namespace Microsoft.Spark.CSharp.Interop.Ipc
                 }
                 while (totalBytesRead < length && bytesRead > 0);
 
-                if (totalBytesRead < length && totalBytesRead > 0)
+                totalReadNum += totalBytesRead;
+
+                // stream is closed, return null to notify function caller
+                if (totalBytesRead == 0)
+                    return null;
+
+                if (totalBytesRead < length)
                     throw new ArgumentException(string.Format("Incomplete bytes read: {0}, expected: {1}", totalBytesRead, length));
             }
+
             return buffer;
         }
         
         public static byte[] ReadBytes(Stream s)
         {
-            var length = ReadInt(s);
+            var lengthBuffer = ReadBytes(s, 4);
+            if (lengthBuffer == null)
+                return null;
+
+            var length = ToInt(lengthBuffer);
             if (length == (int)SpecialLengths.NULL)
                 return null;
+
             return ReadBytes(s, length);
         }
         
@@ -178,11 +192,13 @@ namespace Microsoft.Spark.CSharp.Interop.Ipc
         public static void Write(Stream s, byte value)
         {
             s.WriteByte(value);
+            totalWriteNum += 1;
         }
 
         public static void Write(Stream s, byte[] value)
         {
             s.Write(value, 0, value.Length);
+            totalWriteNum += value.Length;
         }
 
         public static void Write(Stream s, int value)

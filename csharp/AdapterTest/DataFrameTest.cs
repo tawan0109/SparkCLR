@@ -7,7 +7,7 @@ using System.Linq;
 using System.Reflection;
 using AdapterTest.Mocks;
 using Microsoft.Spark.CSharp.Core;
-using Microsoft.Spark.CSharp.Proxy.Ipc;
+using Microsoft.Spark.CSharp.Interop;
 using Microsoft.Spark.CSharp.Sql;
 using Microsoft.Spark.CSharp.Proxy;
 using NUnit.Framework;
@@ -25,16 +25,23 @@ namespace AdapterTest
 
         private static Mock<IDataFrameProxy> mockDataFrameProxy;
 
-        [TestFixtureSetUp]
+        [OneTimeSetUp]
         public static void ClassInitialize()
         {
             mockDataFrameProxy = new Mock<IDataFrameProxy>();
         }
 
-        [Test]
+        [SetUp]
         public void TestInitialize()
         {
             mockDataFrameProxy.Reset();
+        }
+
+        [TearDown]
+        public void TestCleanUp()
+        {
+            // Revert to use Static mock class to prevent blocking other test methods which uses static mock class
+            SparkCLREnvironment.SparkCLRProxy = new MockSparkCLRProxy();
         }
 
         [Test]
@@ -50,94 +57,32 @@ namespace AdapterTest
             Assert.AreEqual("JoinCol", paramValuesToJoinMethod[1]);
         }
 
+        
         [Test]
         public void TestDataFrameCollect()
         {
-            string jsonSchema = @"
-                {
-                  ""type"" : ""struct"",
-                  ""fields"" : [ {
-                    ""name"" : ""address"",
-                    ""type"" : {
-                      ""type"" : ""struct"",
-                      ""fields"" : [ {
-                        ""name"" : ""city"",
-                        ""type"" : ""string"",
-                        ""nullable"" : true,
-                        ""metadata"" : { }
-                      }, {
-                        ""name"" : ""state"",
-                        ""type"" : ""string"",
-                        ""nullable"" : true,
-                        ""metadata"" : { }
-                      } ]
-                    },
-                    ""nullable"" : true,
-                    ""metadata"" : { }
-                  }, {
-                    ""name"" : ""age"",
-                    ""type"" : ""long"",
-                    ""nullable"" : true,
-                    ""metadata"" : { }
-                  }, {
-                    ""name"" : ""id"",
-                    ""type"" : ""string"",
-                    ""nullable"" : true,
-                    ""metadata"" : { }
-                  }, {
-                    ""name"" : ""name"",
-                    ""type"" : ""string"",
-                    ""nullable"" : true,
-                    ""metadata"" : { }
-                  } ]
-                }";
+            var expectedRows = new Row[] {new MockRow(), new MockRow()};
+            var mockRddProxy = new Mock<IRDDProxy>();
+            var mockRddCollector = new Mock<IRDDCollector>();
+            mockRddCollector.Setup(m => m.Collect(It.IsAny<int>(), It.IsAny<SerializedMode>(), It.IsAny<Type>()))
+                .Returns(expectedRows);
+            mockRddProxy.Setup(m => m.CollectAndServe()).Returns(123);
+            mockRddProxy.Setup(m => m.RDDCollector).Returns(mockRddCollector.Object);
+            mockDataFrameProxy.Setup(m => m.JavaToCSharp()).Returns(mockRddProxy.Object);
+            var dataFrame = new DataFrame(mockDataFrameProxy.Object, null);
 
-            int localPort = 4000;
-            object row1 = new object[] {
-                new object[] {"Columbus", "Ohio"},
-                34,
-                "123",
-                "Bill"
-            };
-
-            object row2 = new object[] {
-                new object[] {"Seattle", "Washington"},
-                43,
-                "789",
-                "Bill"
-            };
-
-            IStructTypeProxy structTypeProxy = new MockStructTypeProxy(jsonSchema);
-            IDataFrameProxy dataFrameProxy =
-                new MockDataFrameProxy(localPort,
-                                       new List<object>() { row1, row2 },
-                                       structTypeProxy);
-            DataFrame dataFrame = new DataFrame(dataFrameProxy, null);
-
-            List<Row> rows = new List<Row>();
+            var rows = new List<Row>();
             foreach (var row in dataFrame.Collect())
             {
                 rows.Add(row);
                 Console.WriteLine("{0}", row);
             }
 
-            Assert.AreEqual(rows.Count, 2);
-            Row firstRow = rows[0];
-
-            string id = firstRow.GetAs<string>("id");
-            Assert.IsTrue(id.Equals("123"));
-            string name = firstRow.GetAs<string>("name");
-            Assert.IsTrue(name.Equals("Bill"));
-            int age = firstRow.GetAs<int>("age");
-            Assert.AreEqual(age, 34);
-
-            Row address = firstRow.GetAs<Row>("address");
-            Assert.AreNotEqual(address, null);
-            string city = address.GetAs<string>("city");
-            Assert.IsTrue(city.Equals("Columbus"));
-            string state = address.GetAs<string>("state");
-            Assert.IsTrue(state.Equals("Ohio"));
+            Assert.AreEqual(rows.Count, expectedRows.Length);
+            Assert.AreEqual(expectedRows[0], rows[0]);
+            Assert.AreEqual(expectedRows[1], rows[1]);
         }
+        
 
         [Test]
         public void TestIntersect()
@@ -219,8 +164,14 @@ namespace AdapterTest
             var mockSchemaProxy = new Mock<IStructTypeProxy>();
             var mockFieldProxy = new Mock<IStructFieldProxy>();
             var expectedResultDataFrameProxy = new Mock<IDataFrameProxy>().Object;
-            mockDataFrameProxy.Setup(m => m.DropNa(It.IsAny<int?>(), It.IsAny<string[]>())).Returns(expectedResultDataFrameProxy);
             mockDataFrameProxy.Setup(m => m.GetSchema()).Returns(mockSchemaProxy.Object);
+
+            // dataframeNaFunctionsProxy
+            var dataFrameNaFunctionsProxy = new Mock<IDataFrameNaFunctionsProxy>();
+            dataFrameNaFunctionsProxy.Setup(d => d.Drop(It.IsAny<int>(), It.IsAny<string[]>())).Returns(expectedResultDataFrameProxy);
+
+            mockDataFrameProxy.Setup(m => m.Na()).Returns(dataFrameNaFunctionsProxy.Object);
+            
             mockSchemaProxy.Setup(m => m.GetStructTypeFields()).Returns(new List<IStructFieldProxy> { mockFieldProxy.Object });
             mockFieldProxy.Setup(m => m.GetStructFieldName()).Returns(columnName);
             var sc = new SparkContext(null);
@@ -230,8 +181,9 @@ namespace AdapterTest
             var actualResultDataFrame = originalDataFrame.DropNa();
 
             // Assert
-            mockDataFrameProxy.Verify(m => m.DropNa(1, It.Is<string[]>(subset => subset.Length == 1 && 
-                subset.Contains(columnName)))); // assert DropNa of Proxy was invoked with correct parameters
+            // assert DropNa of Proxy was invoked with correct parameters
+            dataFrameNaFunctionsProxy.Verify(m => m.Drop(1, It.Is<string[]>(subset => subset.Length == 1 && 
+                subset.Contains(columnName))));
             Assert.AreEqual(expectedResultDataFrameProxy, actualResultDataFrame.DataFrameProxy);
         }
 
@@ -347,7 +299,7 @@ namespace AdapterTest
             var actualResultDataFrame = originalDataFrame.RandomSplit(weights);
 
             // Assert
-            mockDataFrameProxy.Verify(m => m.RandomSplit(weights, It.IsAny<long?>())); // assert Drop of Proxy was invoked with correct parameters
+            mockDataFrameProxy.Verify(m => m.RandomSplit(weights, It.IsAny<long?>())); // assert RandomSplit was invoked with correct parameters
             Assert.AreEqual(1, actualResultDataFrame.Count());
             Assert.AreEqual(expectedResultDataFrameProxy, actualResultDataFrame.First().DataFrameProxy);
         }
@@ -382,8 +334,6 @@ namespace AdapterTest
             var mockSchemaProxy = new Mock<IStructTypeProxy>();
             var mockFieldProxy = new Mock<IStructFieldProxy>();
             var mockStructDataTypeProxy = new Mock<IStructDataTypeProxy>();
-            var expectedResultDataFrameProxy = new Mock<IDataFrameProxy>().Object;
-            mockDataFrameProxy.Setup(m => m.DropNa(It.IsAny<int?>(), It.IsAny<string[]>())).Returns(expectedResultDataFrameProxy);
             mockDataFrameProxy.Setup(m => m.GetSchema()).Returns(mockSchemaProxy.Object);
             mockSchemaProxy.Setup(m => m.GetStructTypeFields()).Returns(new List<IStructFieldProxy> { mockFieldProxy.Object });
             mockFieldProxy.Setup(m => m.GetStructFieldName()).Returns(columnName);
@@ -438,7 +388,7 @@ namespace AdapterTest
             var actualResultDataFrame = originalDataFrame.Alias(alias);
 
             // Assert
-            mockDataFrameProxy.Verify(m => m.Alias(alias)); // assert Drop of Proxy was invoked with correct parameters
+            mockDataFrameProxy.Verify(m => m.Alias(alias)); // assert Alias was invoked with correct parameters
             Assert.AreEqual(expectedResultDataFrameProxy, actualResultDataFrame.DataFrameProxy);
         }
 
@@ -467,7 +417,6 @@ namespace AdapterTest
                 }";
 
             Mock<IStructTypeProxy> mockStructTypeProxy = new Mock<IStructTypeProxy>();
-            mockStructTypeProxy.Setup(m => m.ToJson()).Returns(jsonSchema);
             mockDataFrameProxy.Setup(m => m.GetSchema()).Returns(mockStructTypeProxy.Object);
 
             var rows = new object[]
@@ -478,7 +427,7 @@ namespace AdapterTest
                     "123",
                     "Bill"
                 }, 
-                RowSchema.ParseRowSchemaFromJson(jsonSchema))
+                DataType.ParseDataTypeFromJson(jsonSchema) as StructType)
             };
 
             mockDataFrameProxy.Setup(m => m.JavaToCSharp()).Returns(new MockRddProxy(rows));
@@ -491,15 +440,6 @@ namespace AdapterTest
 
             Assert.IsNotNull(rdd);
             mockDataFrameProxy.Verify(m => m.JavaToCSharp(), Times.Once);
-            mockStructTypeProxy.Verify(m => m.ToJson(), Times.Once);
-
-            mockDataFrameProxy.Reset();
-            mockStructTypeProxy.Reset();
-
-            rdd = dataFrame.Rdd;
-            Assert.IsNotNull(rdd);
-            mockDataFrameProxy.Verify(m => m.JavaToCSharp(), Times.Never);
-            mockStructTypeProxy.Verify(m => m.ToJson(), Times.Never);
         }
 
         [Test]
@@ -657,6 +597,34 @@ namespace AdapterTest
         }
 
         [Test]
+        public void TestMap()
+        {
+            // mock rddProxy
+            const int count = 4;
+            Mock<IRDDProxy> mockRddProxy = new Mock<IRDDProxy>();
+            mockRddProxy.Setup(r => r.Count()).Returns(count);
+
+            // mock sparkContextProxy
+            Mock<ISparkContextProxy> mockSparkContextProxy = new Mock<ISparkContextProxy>();
+            mockSparkContextProxy.Setup(ctx => ctx.CreateCSharpRdd(It.IsAny<IRDDProxy>(),
+                It.IsAny<byte[]>(),
+                null, null, It.IsAny<bool>(), null, null)).Returns(mockRddProxy.Object);
+            var sc = new SparkContext(null);
+
+            var dataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+            SetPrivatePropertyValue(sc, "SparkContextProxy", mockSparkContextProxy.Object);
+            SetPrivateFieldValue(dataFrame, "rdd", new RDD<Row>(mockRddProxy.Object, sc));
+
+            var f = new Func<Row, int>(row => row.Size());
+
+            RDD<int> rdd = dataFrame.Map(f);
+
+            // assert
+            Assert.IsNotNull(rdd);
+            Assert.AreEqual(count, rdd.Count());
+        }
+
+        [Test]
         public void TestMapPartitions()
         {
             // mock rddProxy
@@ -682,6 +650,259 @@ namespace AdapterTest
             // verify
             Assert.IsNotNull(rdd);
             Assert.AreEqual(count, rdd.Count());
+        }
+
+        [Test]
+        public void TestLimit()
+        {
+            // arrange
+            IDataFrameProxy limitedDataFrameProxy = new Mock<IDataFrameProxy>().Object;
+            mockDataFrameProxy.Setup(m => m.Limit(It.IsAny<int>())).Returns(limitedDataFrameProxy);
+
+            var sc = new SparkContext(null);
+            var dataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+
+            // act
+            const int size = 2;
+            DataFrame limitedDataFrame =dataFrame.Limit(size);
+
+            // assert
+            Assert.IsNotNull(limitedDataFrame.DataFrameProxy);
+            Assert.AreEqual(limitedDataFrameProxy, limitedDataFrame.DataFrameProxy);
+            mockDataFrameProxy.Verify(m => m.Limit(size), Times.Once());
+        }
+
+
+        [Test]
+        public void TestHead()
+        {
+            var expectedRows = new Row[] {new MockRow(), new MockRow(), new MockRow(), new MockRow(), new MockRow()};
+            var mockRddProxy = new Mock<IRDDProxy>();
+            var mockRddCollector = new Mock<IRDDCollector>();
+            mockRddCollector.Setup(m => m.Collect(It.IsAny<int>(), It.IsAny<SerializedMode>(), It.IsAny<Type>()))
+                .Returns(expectedRows);
+            mockRddProxy.Setup(m => m.CollectAndServe()).Returns(123);
+            mockRddProxy.Setup(m => m.RDDCollector).Returns(mockRddCollector.Object);
+            mockDataFrameProxy.Setup(m => m.JavaToCSharp()).Returns(mockRddProxy.Object);
+            mockDataFrameProxy.Setup(m => m.Limit(It.IsAny<int>())).Returns(mockDataFrameProxy.Object);
+            var dataFrame = new DataFrame(mockDataFrameProxy.Object, null);
+
+            const int unUsedSizeValue = 100;
+
+            // act
+            IEnumerable<Row> rows = dataFrame.Head(unUsedSizeValue); //uses limit & collect
+            
+            // assert
+            var rowsArray = rows.ToArray();
+            Assert.IsNotNull(rows);
+            Assert.AreEqual(expectedRows.Length, rowsArray.Length);
+            for (int i = 0; i < rowsArray.Length; i++)
+                Assert.AreEqual(expectedRows[i], rowsArray[i]);
+            mockDataFrameProxy.Verify(m => m.Limit(unUsedSizeValue), Times.Once());
+        }
+
+        
+        [Test]
+        public void TestFirst()
+        {
+            // arrange
+            var expectedRows = new Row[] { new MockRow(), new MockRow(), new MockRow(), new MockRow(), new MockRow() };
+            var mockRddProxy = new Mock<IRDDProxy>();
+            var mockRddCollector = new Mock<IRDDCollector>();
+            mockRddCollector.Setup(m => m.Collect(It.IsAny<int>(), It.IsAny<SerializedMode>(), It.IsAny<Type>()))
+                .Returns(expectedRows);
+            mockRddProxy.Setup(m => m.CollectAndServe()).Returns(123);
+            mockRddProxy.Setup(m => m.RDDCollector).Returns(mockRddCollector.Object);
+            mockDataFrameProxy.Setup(m => m.JavaToCSharp()).Returns(mockRddProxy.Object);
+            mockDataFrameProxy.Setup(m => m.Limit(It.IsAny<int>())).Returns(mockDataFrameProxy.Object);
+            var dataFrame = new DataFrame(mockDataFrameProxy.Object, null);
+
+            // act
+            Row firstRow = dataFrame.First(); //uses limit & collect
+
+            // assert
+            Assert.AreEqual(expectedRows[0], firstRow);
+            mockDataFrameProxy.Verify(m => m.Limit(1), Times.Once());
+        }
+
+        
+        [Test]
+        public void TestTake()
+        {
+            // arrange
+            var expectedRows = new Row[] { new MockRow(), new MockRow(), new MockRow(), new MockRow(), new MockRow() };
+            var mockRddProxy = new Mock<IRDDProxy>();
+            var mockRddCollector = new Mock<IRDDCollector>();
+            mockRddCollector.Setup(m => m.Collect(It.IsAny<int>(), It.IsAny<SerializedMode>(), It.IsAny<Type>()))
+                .Returns(expectedRows);
+            mockRddProxy.Setup(m => m.CollectAndServe()).Returns(123);
+            mockRddProxy.Setup(m => m.RDDCollector).Returns(mockRddCollector.Object);
+            mockDataFrameProxy.Setup(m => m.JavaToCSharp()).Returns(mockRddProxy.Object);
+            mockDataFrameProxy.Setup(m => m.Limit(It.IsAny<int>())).Returns(mockDataFrameProxy.Object);
+            var dataFrame = new DataFrame(mockDataFrameProxy.Object, null);
+
+            const int unUsedSizeValue = 100;
+            // act
+            IEnumerable<Row> iter = dataFrame.Take(unUsedSizeValue);
+
+            // assert
+            Assert.IsNotNull(iter);
+            Row[] rows = iter.ToArray();
+            Assert.AreEqual(expectedRows.Length, rows.Length);
+            for (int i = 0; i < rows.Length; i++)
+                Assert.AreEqual(expectedRows[i], rows[i]);
+            mockDataFrameProxy.Verify(m => m.Limit(unUsedSizeValue), Times.Once());
+        }
+        
+
+        [Test]
+        public void TestDistinct()
+        {
+            // arrange
+            mockDataFrameProxy.Setup(m => m.Distinct()).Returns(new Mock<IDataFrameProxy>().Object);
+
+            var sc = new SparkContext(null);
+            var dataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+
+            dataFrame.Distinct();
+
+            // assert
+            mockDataFrameProxy.Verify(m => m.Distinct(), Times.Once());
+        }
+
+        [Test]
+        public void TestForeachPartition()
+        {
+            // mock rddProxy
+            const int count = 4;
+            Mock<IRDDProxy> mockRddProxy = new Mock<IRDDProxy>();
+            mockRddProxy.Setup(rdd => rdd.Count()).Returns(count);
+
+            // mock sparkContextProxy
+            Mock<ISparkContextProxy> mockSparkContextProxy = new Mock<ISparkContextProxy>();
+            mockSparkContextProxy.Setup(ctx => ctx.CreateCSharpRdd(It.IsAny<IRDDProxy>(),
+                It.IsAny<byte[]>(),
+                null, null, It.IsAny<bool>(), null, null)).Returns(mockRddProxy.Object);
+
+            var sc = new SparkContext(null);
+            SetPrivatePropertyValue(sc, "SparkContextProxy", mockSparkContextProxy.Object);
+
+            var dataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+            SetPrivateFieldValue(dataFrame, "rdd", new RDD<Row>(mockRddProxy.Object, sc));
+
+            var f = new Action<IEnumerable<Row>>(iter => Console.WriteLine(iter.Count()));
+
+            dataFrame.ForeachPartition(f);
+
+            // assert
+            mockRddProxy.Verify(m => m.Count(), Times.Once);
+            mockSparkContextProxy.Verify(m => m.CreateCSharpRdd(It.IsAny<IRDDProxy>(),
+                It.IsAny<byte[]>(),
+                null, null, It.IsAny<bool>(), null, null), Times.Once);
+        }
+
+        [Test]
+        public void TestForeach()
+        {
+            // mock rddProxy
+            const int count = 4;
+            Mock<IRDDProxy> mockRddProxy = new Mock<IRDDProxy>();
+            mockRddProxy.Setup(rdd => rdd.Count()).Returns(count);
+
+            // mock sparkContextProxy
+            Mock<ISparkContextProxy> mockSparkContextProxy = new Mock<ISparkContextProxy>();
+            mockSparkContextProxy.Setup(ctx => ctx.CreateCSharpRdd(It.IsAny<IRDDProxy>(),
+                It.IsAny<byte[]>(),
+                null, null, It.IsAny<bool>(), null, null)).Returns(mockRddProxy.Object);
+
+            var sc = new SparkContext(null);
+            SetPrivatePropertyValue(sc, "SparkContextProxy", mockSparkContextProxy.Object);
+
+            var dataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+            SetPrivateFieldValue(dataFrame, "rdd", new RDD<Row>(mockRddProxy.Object, sc));
+
+            var f = new Action<Row>(row => Console.WriteLine(row.ToString()));
+
+            dataFrame.Foreach(f);
+
+            // assert
+            mockRddProxy.Verify(m => m.Count(), Times.Once);
+            mockSparkContextProxy.Verify(m => m.CreateCSharpRdd(It.IsAny<IRDDProxy>(),
+                It.IsAny<byte[]>(),
+                null, null, It.IsAny<bool>(), null, null), Times.Once);
+        }
+
+        private static void AssertRow(Row row, int index)
+        {
+            Assert.IsNotNull(row);
+            Assert.AreEqual("name" + index, row.GetAs<string>("name"));
+            Assert.AreEqual("id" + index, row.GetAs<string>("id"));
+            Row address = row.GetAs<Row>("address");
+            Assert.AreNotEqual(address, null);
+            string city = address.GetAs<string>("city");
+            Assert.IsTrue(city.Equals("city" + index));
+            string state = address.GetAs<string>("state");
+            Assert.IsTrue(state.Equals("state" + index));
+        }
+
+        // Mock a IDataFrameProxy instance to test collect method
+        private static IDataFrameProxy MockDataFrameProxyForCollect(int localPort, int size)
+        {
+            const string jsonSchema = @"
+                {
+                  ""type"" : ""struct"",
+                  ""fields"" : [ {
+                    ""name"" : ""address"",
+                    ""type"" : {
+                      ""type"" : ""struct"",
+                      ""fields"" : [ {
+                        ""name"" : ""city"",
+                        ""type"" : ""string"",
+                        ""nullable"" : true,
+                        ""metadata"" : { }
+                      }, {
+                        ""name"" : ""state"",
+                        ""type"" : ""string"",
+                        ""nullable"" : true,
+                        ""metadata"" : { }
+                      } ]
+                    },
+                    ""nullable"" : true,
+                    ""metadata"" : { }
+                  }, {
+                    ""name"" : ""age"",
+                    ""type"" : ""long"",
+                    ""nullable"" : true,
+                    ""metadata"" : { }
+                  }, {
+                    ""name"" : ""id"",
+                    ""type"" : ""string"",
+                    ""nullable"" : true,
+                    ""metadata"" : { }
+                  }, {
+                    ""name"" : ""name"",
+                    ""type"" : ""string"",
+                    ""nullable"" : true,
+                    ""metadata"" : { }
+                  } ]
+                }";
+
+            var rows = new List<object>();
+
+            for (var i = 0; i < size; i++)
+            {
+                object row = new object[] 
+                {
+                    new object[] {"city" + i, "state" + i},
+                    i,
+                    "id" + i,
+                    "name" +i
+                };
+                rows.Add(row);
+            }
+
+            IStructTypeProxy structTypeProxy = new MockStructTypeProxy(jsonSchema);
+            return new MockDataFrameProxy(localPort, rows, structTypeProxy);
         }
 
         /// <summary>
@@ -717,6 +938,481 @@ namespace AdapterTest
                 throw new Exception("Failed to find property: " + propName + " in type: " + t);
             }
         }
-    }
+		
+        [Test]
+        public void TestSelect_Object_ObjectArray()
+        {
+            // Arrange
+            const string column1Name = "colName";
+            IColumnProxy mockColumn1Proxy = new Mock<IColumnProxy>().Object;
+            IColumnProxy mockColumn2Proxy = new Mock<IColumnProxy>().Object;
+            Column column2 = new Column(mockColumn2Proxy);
+            var mockSparkCLRProxy = new Mock<ISparkCLRProxy>();
+            var mockSparkContextProxy = new Mock<ISparkContextProxy>();
+            mockSparkCLRProxy.Setup(m => m.SparkContextProxy).Returns(mockSparkContextProxy.Object);
+            mockSparkCLRProxy.Setup(m => m.CreateSparkConf(It.IsAny<bool>())).Returns(new MockSparkConfProxy()); // some of mocks which rarely change can be kept
+            SparkCLREnvironment.SparkCLRProxy = mockSparkCLRProxy.Object;
+            mockSparkContextProxy.Setup(m => m.CreateFunction("col", column1Name)).Returns(mockColumn1Proxy);
+            
+            var expectedResultDataFrameProxy = new Mock<IDataFrameProxy>().Object;
+            mockDataFrameProxy.Setup(m => m.Select(It.IsAny<IEnumerable<IColumnProxy>>())).Returns(expectedResultDataFrameProxy);
+            var sc = new SparkContext(null);
 
+            // Act
+            var originalDataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+            var actualResultDataFrame = originalDataFrame.Select(column1Name, column2);
+
+            // Assert
+            mockDataFrameProxy.Verify(m => m.Select(It.Is<IEnumerable<IColumnProxy>>(clist => 
+                clist.Any(cp => cp == mockColumn1Proxy) && clist.Any(cp => cp == mockColumn2Proxy)))); 
+            Assert.AreEqual(expectedResultDataFrameProxy, actualResultDataFrame.DataFrameProxy);
+        }
+
+        [Test]
+        public void TestWithColumn()
+        {
+            // Arrange
+            const string alias = "alias";
+            IColumnProxy mockColumnStarProxy = new Mock<IColumnProxy>().Object;
+            var mockColumn2Proxy = new Mock<IColumnProxy>();
+            var mockRenamedColumn2Proxy = new Mock<IColumnProxy>().Object;
+            mockColumn2Proxy.Setup(m => m.InvokeMethod("as", alias)).Returns(mockRenamedColumn2Proxy);
+            Column column2 = new Column(mockColumn2Proxy.Object);
+            var mockSparkCLRProxy = new Mock<ISparkCLRProxy>();
+            var mockSparkContextProxy = new Mock<ISparkContextProxy>();
+            mockSparkCLRProxy.Setup(m => m.SparkContextProxy).Returns(mockSparkContextProxy.Object);
+            mockSparkCLRProxy.Setup(m => m.CreateSparkConf(It.IsAny<bool>())).Returns(new MockSparkConfProxy()); // some of mocks which rarely change can be kept
+            SparkCLREnvironment.SparkCLRProxy = mockSparkCLRProxy.Object;
+            mockSparkContextProxy.Setup(m => m.CreateFunction("col", "*")).Returns(mockColumnStarProxy);
+
+            var expectedResultDataFrameProxy = new Mock<IDataFrameProxy>().Object;
+            mockDataFrameProxy.Setup(m => m.Select(It.IsAny<IEnumerable<IColumnProxy>>())).Returns(expectedResultDataFrameProxy);
+            var sc = new SparkContext(null);
+
+            // Act
+            var originalDataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+            var actualResultDataFrame = originalDataFrame.WithColumn(alias, column2);
+
+            // Assert
+            mockDataFrameProxy.Verify(m => m.Select(It.Is<IEnumerable<IColumnProxy>>(clist =>
+                clist.Count() == 2 && clist.Any(cp => cp == mockColumnStarProxy) && clist.Any(cp => cp == mockRenamedColumn2Proxy))));
+            Assert.AreEqual(expectedResultDataFrameProxy, actualResultDataFrame.DataFrameProxy);
+        }
+
+        [Test]
+        public void TestWithColumnRenamed()
+        {
+            // Arrange
+            const string existingColumn = "existCol";
+            const string alias = "alias";
+            var mockColumnProxy = new Mock<IColumnProxy>();
+            var mockRenamedColumnProxy = new Mock<IColumnProxy>().Object;
+            mockColumnProxy.Setup(m => m.InvokeMethod("as", alias)).Returns(mockRenamedColumnProxy);
+            var mockSparkCLRProxy = new Mock<ISparkCLRProxy>();
+            var mockSparkContextProxy = new Mock<ISparkContextProxy>();
+            mockSparkCLRProxy.Setup(m => m.SparkContextProxy).Returns(mockSparkContextProxy.Object);
+            mockSparkCLRProxy.Setup(m => m.CreateSparkConf(It.IsAny<bool>())).Returns(new MockSparkConfProxy()); // some of mocks which rarely change can be kept
+            SparkCLREnvironment.SparkCLRProxy = mockSparkCLRProxy.Object;
+
+            var mockSchemaProxy = new Mock<IStructTypeProxy>();
+            var mockFieldProxy = new Mock<IStructFieldProxy>();
+            mockDataFrameProxy.Setup(m => m.GetSchema()).Returns(mockSchemaProxy.Object);
+            mockSchemaProxy.Setup(m => m.GetStructTypeFields()).Returns(new List<IStructFieldProxy> { mockFieldProxy.Object });
+            mockFieldProxy.Setup(m => m.GetStructFieldName()).Returns(existingColumn);
+            mockDataFrameProxy.Setup(m => m.GetColumn(existingColumn)).Returns(mockColumnProxy.Object);
+
+            var expectedResultDataFrameProxy = new Mock<IDataFrameProxy>().Object;
+            mockDataFrameProxy.Setup(m => m.Select(It.IsAny<IEnumerable<IColumnProxy>>())).Returns(expectedResultDataFrameProxy);
+            var sc = new SparkContext(null);
+
+            // Act
+            var originalDataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+            var actualResultDataFrame = originalDataFrame.WithColumnRenamed(existingColumn, alias);
+
+            // Assert
+            mockDataFrameProxy.Verify(m => m.Select(It.Is<IEnumerable<IColumnProxy>>(clist => clist.Count() == 1 &&
+                clist.Any(cp => cp == mockRenamedColumnProxy))));
+            Assert.AreEqual(expectedResultDataFrameProxy, actualResultDataFrame.DataFrameProxy);
+        }
+
+        [Test]
+        public void TestCorr()
+        {
+            // Arrange
+            const string column1 = "col1";
+            const string column2 = "col2";
+            const string method = "pearson";
+            const double expectedResult = 1.0;
+            mockDataFrameProxy.Setup(m => m.Corr(column1, column2, method)).Returns(expectedResult);
+            var sc = new SparkContext(null);
+
+            // Act
+            var originalDataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+            var actualResult = originalDataFrame.Corr(column1, column2);
+
+            // Assert
+            mockDataFrameProxy.Verify(m => m.Corr(column1, column2, method)); // assert Corr was invoked with correct parameters
+            Assert.AreEqual(expectedResult, actualResult);
+        }
+
+        [Test]
+        public void TestCov()
+        {
+            // Arrange
+            const string column1 = "col1";
+            const string column2 = "col2";
+            const double expectedResult = 100;
+            mockDataFrameProxy.Setup(m => m.Cov(column1, column2)).Returns(expectedResult);
+            var sc = new SparkContext(null);
+
+            // Act
+            var originalDataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+            var actualResult = originalDataFrame.Cov(column1, column2);
+
+            // Assert
+            mockDataFrameProxy.Verify(m => m.Cov(column1, column2)); // assert Cov was invoked with correct parameters
+            Assert.AreEqual(expectedResult, actualResult);
+        }
+
+        [Test]
+        public void TestCrosstab()
+        {
+            // Arrange
+            const string column1 = "col1";
+            const string column2 = "col2";
+            var expectedResultDataFrameProxy = new Mock<IDataFrameProxy>().Object;
+            mockDataFrameProxy.Setup(m => m.Crosstab(column1, column2)).Returns(expectedResultDataFrameProxy);
+            var sc = new SparkContext(null);
+
+            // Act
+            var originalDataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+            var actualResult = originalDataFrame.Crosstab(column1, column2);
+
+            // Assert
+            mockDataFrameProxy.Verify(m => m.Crosstab(column1, column2)); // assert Crosstab was invoked with correct parameters
+            Assert.AreEqual(expectedResultDataFrameProxy, actualResult.DataFrameProxy);
+        }
+
+        [Test]
+        public void TestFreqItems()
+        {
+            // Arrange
+            const string column1 = "col1";
+            var expectedResultDataFrameProxy = new Mock<IDataFrameProxy>().Object;
+            mockDataFrameProxy.Setup(m => m.FreqItems(It.IsAny<IEnumerable<string>>(), It.IsAny<double>())).Returns(expectedResultDataFrameProxy);
+            var sc = new SparkContext(null);
+
+            // Act
+            var originalDataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+            var actualResult = originalDataFrame.FreqItems(new[]{column1});
+
+            // Assert
+            mockDataFrameProxy.Verify(m => m.FreqItems(It.Is<IEnumerable<string>>(
+                cols => cols.Count() == 1 && cols.Any(c => c == column1)), 0.01)); // assert FreqItems was invoked with correct parameters
+            Assert.AreEqual(expectedResultDataFrameProxy, actualResult.DataFrameProxy);
+        }
+
+        [Test]
+        public void TestDescribe()
+        {
+            // Arrange
+            const string column1 = "age";
+            var expectedResultDataFrameProxy = new Mock<IDataFrameProxy>().Object;
+            mockDataFrameProxy.Setup(m => m.Describe(It.IsAny<string[]>())).Returns(expectedResultDataFrameProxy);
+            var sc = new SparkContext(null);
+
+            // Act
+            var originalDataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+            var actualResult = originalDataFrame.Describe(column1);
+
+            // Assert
+            mockDataFrameProxy.Verify(m => m.Describe(It.Is<string[]>(
+                cols => cols.Count() == 1 && cols.Any(c => c == column1)))); // assert Describe was invoked with correct parameters
+            Assert.AreEqual(expectedResultDataFrameProxy, actualResult.DataFrameProxy);
+        }
+
+        [Test]
+        public void TestRollup()
+        {
+            // Arrange
+            const string column1 = "age";
+            var expectedResultGroupedDataProxy = new Mock<IGroupedDataProxy>().Object;
+            mockDataFrameProxy.Setup(m => m.Rollup(It.IsAny<string>(), It.IsAny<string[]>())).Returns(expectedResultGroupedDataProxy);
+            var sc = new SparkContext(null);
+
+            // Act
+            var originalDataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+            var actualResult = originalDataFrame.Rollup(column1);
+
+            // Assert
+            mockDataFrameProxy.Verify(m => m.Rollup(column1, new string[0])); // assert Rollup was invoked with correct parameters
+            Assert.AreEqual(expectedResultGroupedDataProxy, actualResult.GroupedDataProxy);
+        }
+
+        [Test]
+        public void TestCube()
+        {
+            // Arrange
+            const string column1 = "age";
+            var expectedResultGroupedDataProxy = new Mock<IGroupedDataProxy>().Object;
+            mockDataFrameProxy.Setup(m => m.Cube(It.IsAny<string>(), It.IsAny<string[]>())).Returns(expectedResultGroupedDataProxy);
+            var sc = new SparkContext(null);
+
+            // Act
+            var originalDataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+            var actualResult = originalDataFrame.Cube(column1);
+
+            // Assert
+            mockDataFrameProxy.Verify(m => m.Cube(column1, new string[0])); // assert Cube was invoked with correct parameters
+            Assert.AreEqual(expectedResultGroupedDataProxy, actualResult.GroupedDataProxy);
+        }
+
+        [Test]
+        public void TestWrite()
+        {
+            // Arrange
+            var expectedDataFrameWriterProxy = new Mock<IDataFrameWriterProxy>().Object;
+            mockDataFrameProxy.Setup(m => m.Write()).Returns(expectedDataFrameWriterProxy);
+            var sc = new SparkContext(null);
+
+            // Act
+            var originalDataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+            var dataFrameWriter = originalDataFrame.Write();
+
+            // Assert
+            mockDataFrameProxy.Verify(m => m.Write(), Times.Once); 
+            Assert.AreEqual(expectedDataFrameWriterProxy, dataFrameWriter.DataFrameWriterProxy);
+        }
+
+        #region GroupedDataTest
+
+        [Test]
+        public void TestCount()
+        {
+            // Arrange
+            const string column1 = "age";
+            var mockGroupedDataProxy = new Mock<IGroupedDataProxy>();
+            var expectedResultDataFrameProxy = new Mock<IDataFrameProxy>().Object;
+            mockGroupedDataProxy.Setup(m => m.Count()).Returns(expectedResultDataFrameProxy);
+            mockDataFrameProxy.Setup(m => m.GroupBy(It.IsAny<string>(), It.IsAny<string[]>())).Returns(mockGroupedDataProxy.Object);
+            var sc = new SparkContext(null);
+
+            // Act
+            var originalDataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+            var actualResult = originalDataFrame.GroupBy(column1).Count();
+
+            // Assert
+            mockGroupedDataProxy.Verify(m => m.Count()); // assert Count was invoked with correct parameters
+            Assert.AreEqual(expectedResultDataFrameProxy, actualResult.DataFrameProxy);
+        }
+
+        [Test]
+        public void TestMean()
+        {
+            // Arrange
+            const string column1 = "name";
+            const string columnMean = "age";
+            var mockGroupedDataProxy = new Mock<IGroupedDataProxy>();
+            var expectedResultDataFrameProxy = new Mock<IDataFrameProxy>().Object;
+            mockGroupedDataProxy.Setup(m => m.Mean(columnMean)).Returns(expectedResultDataFrameProxy);
+            mockDataFrameProxy.Setup(m => m.GroupBy(It.IsAny<string>(), It.IsAny<string[]>())).Returns(mockGroupedDataProxy.Object);
+            var sc = new SparkContext(null);
+
+            // Act
+            var originalDataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+            var actualResult = originalDataFrame.GroupBy(column1).Mean(columnMean);
+
+            // Assert
+            mockGroupedDataProxy.Verify(m => m.Mean(columnMean)); // assert Count was invoked with correct parameters
+            Assert.AreEqual(expectedResultDataFrameProxy, actualResult.DataFrameProxy);
+        }
+
+        [Test]
+        public void TestMax()
+        {
+            // Arrange
+            const string column1 = "name";
+            const string columnMean = "age";
+            var mockGroupedDataProxy = new Mock<IGroupedDataProxy>();
+            var expectedResultDataFrameProxy = new Mock<IDataFrameProxy>().Object;
+            mockGroupedDataProxy.Setup(m => m.Max(columnMean)).Returns(expectedResultDataFrameProxy);
+            mockDataFrameProxy.Setup(m => m.GroupBy(It.IsAny<string>(), It.IsAny<string[]>())).Returns(mockGroupedDataProxy.Object);
+            var sc = new SparkContext(null);
+
+            // Act
+            var originalDataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+            var actualResult = originalDataFrame.GroupBy(column1).Max(columnMean);
+
+            // Assert
+            mockGroupedDataProxy.Verify(m => m.Max(columnMean)); // assert Count was invoked with correct parameters
+            Assert.AreEqual(expectedResultDataFrameProxy, actualResult.DataFrameProxy);
+        }
+
+        [Test]
+        public void TestMin()
+        {
+            // Arrange
+            const string column1 = "name";
+            const string columnMean = "age";
+            var mockGroupedDataProxy = new Mock<IGroupedDataProxy>();
+            var expectedResultDataFrameProxy = new Mock<IDataFrameProxy>().Object;
+            mockGroupedDataProxy.Setup(m => m.Min(columnMean)).Returns(expectedResultDataFrameProxy);
+            mockDataFrameProxy.Setup(m => m.GroupBy(It.IsAny<string>(), It.IsAny<string[]>())).Returns(mockGroupedDataProxy.Object);
+            var sc = new SparkContext(null);
+
+            // Act
+            var originalDataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+            var actualResult = originalDataFrame.GroupBy(column1).Min(columnMean);
+
+            // Assert
+            mockGroupedDataProxy.Verify(m => m.Min(columnMean)); // assert Count was invoked with correct parameters
+            Assert.AreEqual(expectedResultDataFrameProxy, actualResult.DataFrameProxy);
+        }
+
+        [Test]
+        public void TestAvg()
+        {
+            // Arrange
+            const string column1 = "name";
+            const string columnMean = "age";
+            var mockGroupedDataProxy = new Mock<IGroupedDataProxy>();
+            var expectedResultDataFrameProxy = new Mock<IDataFrameProxy>().Object;
+            mockGroupedDataProxy.Setup(m => m.Avg(columnMean)).Returns(expectedResultDataFrameProxy);
+            mockDataFrameProxy.Setup(m => m.GroupBy(It.IsAny<string>(), It.IsAny<string[]>())).Returns(mockGroupedDataProxy.Object);
+            var sc = new SparkContext(null);
+
+            // Act
+            var originalDataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+            var actualResult = originalDataFrame.GroupBy(column1).Avg(columnMean);
+
+            // Assert
+            mockGroupedDataProxy.Verify(m => m.Avg(columnMean)); // assert Count was invoked with correct parameters
+            Assert.AreEqual(expectedResultDataFrameProxy, actualResult.DataFrameProxy);
+        }
+
+        [Test]
+        public void TestSum()
+        {
+            // Arrange
+            const string column1 = "name";
+            const string columnMean = "age";
+            var mockGroupedDataProxy = new Mock<IGroupedDataProxy>();
+            var expectedResultDataFrameProxy = new Mock<IDataFrameProxy>().Object;
+            mockGroupedDataProxy.Setup(m => m.Sum(columnMean)).Returns(expectedResultDataFrameProxy);
+            mockDataFrameProxy.Setup(m => m.GroupBy(It.IsAny<string>(), It.IsAny<string[]>())).Returns(mockGroupedDataProxy.Object);
+            var sc = new SparkContext(null);
+
+            // Act
+            var originalDataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+            var actualResult = originalDataFrame.GroupBy(column1).Sum(columnMean);
+
+            // Assert
+            mockGroupedDataProxy.Verify(m => m.Sum(columnMean)); // assert Count was invoked with correct parameters
+            Assert.AreEqual(expectedResultDataFrameProxy, actualResult.DataFrameProxy);
+        }
+
+        #endregion
+
+        [Test]
+        public void TestSaveAsParquetFile()
+        {
+            Mock<IDataFrameWriterProxy> mockDataFrameWriterProxy = new Mock<IDataFrameWriterProxy>();
+
+            // arrange
+            mockDataFrameProxy.Setup(m => m.Write()).Returns(mockDataFrameWriterProxy.Object);
+            mockDataFrameWriterProxy.Setup(m => m.Format(It.IsAny<string>()));
+            mockDataFrameWriterProxy.Setup(m => m.Save());
+            mockDataFrameWriterProxy.Setup(m => m.Options(It.IsAny<Dictionary<string, string>>()));
+
+            var sc = new SparkContext(null);
+            var dataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+            const string path = "file_path";
+
+            // Act
+            dataFrame.SaveAsParquetFile(path);
+
+            // assert
+            mockDataFrameProxy.Verify(m => m.Write(), Times.Once());
+           
+            mockDataFrameWriterProxy.Verify(m => m.Save(), Times.Once);
+            mockDataFrameWriterProxy.Verify(m => m.Format("parquet"), Times.Once);
+            mockDataFrameWriterProxy.Verify(m => m.Options(
+                It.Is<Dictionary<string, string>>(dict => dict["path"] == "file_path" && dict.Count == 1)), Times.Once);
+            mockDataFrameWriterProxy.Verify(m => m.Save(), Times.Once);
+        }
+
+        [Test]
+        public void TestInsertInto()
+        {
+            Mock<IDataFrameWriterProxy> mockDataFrameWriterProxy = new Mock<IDataFrameWriterProxy>();
+
+            // arrange
+            mockDataFrameProxy.Setup(m => m.Write()).Returns(mockDataFrameWriterProxy.Object);
+            mockDataFrameWriterProxy.Setup(m => m.Mode(It.IsAny<string>()));
+            mockDataFrameWriterProxy.Setup(m => m.InsertInto(It.IsAny<string>()));
+
+            var sc = new SparkContext(null);
+            var dataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+            const string table = "table_name";
+            // Act
+            dataFrame.InsertInto(table, true);
+
+            // assert
+            mockDataFrameProxy.Verify(m => m.Write(), Times.Once());
+
+            mockDataFrameWriterProxy.Verify(m => m.InsertInto(table), Times.Once);
+            mockDataFrameWriterProxy.Verify(m => m.Mode(SaveMode.Overwrite.GetStringValue()), Times.Once);
+        }
+
+        [Test]
+        public void TestSaveAsTable()
+        {
+            Mock<IDataFrameWriterProxy> mockDataFrameWriterProxy = new Mock<IDataFrameWriterProxy>();
+
+            // arrange
+            mockDataFrameProxy.Setup(m => m.Write()).Returns(mockDataFrameWriterProxy.Object);
+            mockDataFrameWriterProxy.Setup(m => m.Format(It.IsAny<string>()));
+            mockDataFrameWriterProxy.Setup(m => m.Mode(It.IsAny<string>()));
+            mockDataFrameWriterProxy.Setup(m => m.Options(It.IsAny<Dictionary<string, string>>()));
+            mockDataFrameWriterProxy.Setup(m => m.SaveAsTable(It.IsAny<string>()));
+
+            var sc = new SparkContext(null);
+            var dataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+            const string table = "table_name";
+            // Act
+            dataFrame.SaveAsTable(table);
+
+            // assert
+            mockDataFrameProxy.Verify(m => m.Write(), Times.Once());
+            mockDataFrameWriterProxy.Verify(m => m.Mode(SaveMode.ErrorIfExists.GetStringValue()), Times.Once);
+            mockDataFrameWriterProxy.Verify(m => m.SaveAsTable(table), Times.Once);
+        }
+
+        [Test]
+        public void TestSave()
+        {
+            Mock<IDataFrameWriterProxy> mockDataFrameWriterProxy = new Mock<IDataFrameWriterProxy>();
+
+            // arrange
+            mockDataFrameProxy.Setup(m => m.Write()).Returns(mockDataFrameWriterProxy.Object);
+            mockDataFrameWriterProxy.Setup(m => m.Format(It.IsAny<string>()));
+            mockDataFrameWriterProxy.Setup(m => m.Mode(It.IsAny<string>()));
+            mockDataFrameWriterProxy.Setup(m => m.Options(It.IsAny<Dictionary<string, string>>()));
+            mockDataFrameWriterProxy.Setup(m => m.Save());
+
+            var sc = new SparkContext(null);
+            var dataFrame = new DataFrame(mockDataFrameProxy.Object, sc);
+            const string path = "path_value";
+
+            // Act
+            dataFrame.Save(path);
+
+            // assert
+            mockDataFrameProxy.Verify(m => m.Write(), Times.Once());
+            mockDataFrameWriterProxy.Verify(m => m.Mode(SaveMode.ErrorIfExists.GetStringValue()), Times.Once);
+            // mockDataFrameWriterProxy.Verify(m => m.Format(null), Times.Once);
+            mockDataFrameWriterProxy.Verify(m => m.Options(It.IsAny<Dictionary<string,string>>()), Times.Exactly(1));
+            mockDataFrameWriterProxy.Verify(m => m.Save(), Times.Once);
+        }
+    }
 }

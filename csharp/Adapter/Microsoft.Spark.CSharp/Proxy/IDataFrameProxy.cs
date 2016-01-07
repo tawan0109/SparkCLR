@@ -20,10 +20,14 @@ namespace Microsoft.Spark.CSharp.Proxy
         IRDDProxy ToRDD();
         IColumnProxy GetColumn(string columnName);
         IDataFrameProxy Select(string columnName, string[] columnNames);
+        IDataFrameProxy Select(IEnumerable<IColumnProxy> columns);
         IDataFrameProxy SelectExpr(string[] columnExpressions);
         IDataFrameProxy Filter(string condition);
         IGroupedDataProxy GroupBy(string firstColumnName, string[] otherColumnNames);
         IGroupedDataProxy GroupBy();
+        IGroupedDataProxy Rollup(string firstColumnName, string[] otherColumnNames);
+        IGroupedDataProxy Cube(string firstColumnName, string[] otherColumnNames);
+
         IDataFrameProxy Agg(IGroupedDataProxy scalaGroupedDataReference, Dictionary<string, string> columnNameAggFunctionDictionary);
         IDataFrameProxy Join(IDataFrameProxy otherScalaDataFrameReference, string joinColumnName);
         IDataFrameProxy Join(IDataFrameProxy otherScalaDataFrameReference, string[] joinColumnNames);
@@ -32,13 +36,19 @@ namespace Microsoft.Spark.CSharp.Proxy
         IDataFrameProxy UnionAll(IDataFrameProxy otherScalaDataFrameReference);
         IDataFrameProxy Subtract(IDataFrameProxy otherScalaDataFrameReference);
         IDataFrameProxy Drop(string columnName);
-        IDataFrameProxy DropNa(int? thresh, string[] subset);
+        IDataFrameNaFunctionsProxy Na();
         IDataFrameProxy DropDuplicates();
         IDataFrameProxy DropDuplicates(string[] subset);
         IDataFrameProxy Replace<T>(object subset, Dictionary<T, T> toReplaceAndValueDict);
         IEnumerable<IDataFrameProxy> RandomSplit(IEnumerable<double> weights, long? seed);
         IDataFrameProxy Sort(IColumnProxy[] columns);
         IDataFrameProxy Alias(string alias);
+        double Corr(string column1, string column2, string method);
+        double Cov(string column1, string column2);
+        IDataFrameProxy FreqItems(IEnumerable<string> columns, double support);
+        IDataFrameProxy Crosstab(string column1, string column2);
+        IDataFrameProxy Describe(string[] columns);
+
         IDataFrameProxy Limit(int num);
         IDataFrameProxy Distinct();
         IDataFrameProxy Coalesce(int numPartitions);
@@ -46,6 +56,7 @@ namespace Microsoft.Spark.CSharp.Proxy
         void Unpersist(bool blocking = true);
         IDataFrameProxy Repartition(int numPartitions);
         IDataFrameProxy Sample(bool withReplacement, double fraction, long seed);
+        IDataFrameWriterProxy Write();
     }
 
     internal interface IUDFProxy
@@ -59,9 +70,16 @@ namespace Microsoft.Spark.CSharp.Proxy
         IColumnProxy UnaryOp(string name);
         IColumnProxy FuncOp(string name);
         IColumnProxy BinOp(string name, object other);
+        IColumnProxy InvokeMethod(string methodName, params object[] parameters);
     }
 
     internal interface IGroupedDataProxy
     {
+        IDataFrameProxy Count();
+        IDataFrameProxy Mean(params string[] columns);
+        IDataFrameProxy Max(params string[] columns);
+        IDataFrameProxy Min(params string[] columns);
+        IDataFrameProxy Avg(params string[] columns);
+        IDataFrameProxy Sum(params string[] columns);
     }
 }

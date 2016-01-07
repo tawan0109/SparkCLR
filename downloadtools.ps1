@@ -12,7 +12,7 @@ if ($stage.ToLower() -eq "run")
     $hadoopVersion = if ($envValue -eq $null) { "2.6" } else { $envValue }
     
     $envValue = [Environment]::GetEnvironmentVariable("SPARK_VERSION")
-    $sparkVersion = if ($envValue -eq $null) { "1.4.1" } else { $envValue }
+    $sparkVersion = if ($envValue -eq $null) { "1.5.2" } else { $envValue }
     
     Write-Output "[downloadtools] hadoopVersion=$hadoopVersion, sparkVersion=$sparkVersion"
 }
@@ -74,7 +74,27 @@ function Download-File($url, $output)
     $start_time = Get-Date
     $wc = New-Object System.Net.WebClient
     Write-Output "[downloadtools.Download-File] Start downloading $url to $output ..."
-    $wc.DownloadFile($url, $output)
+    $Global:downloadComplete = $false
+    Register-ObjectEvent -InputObject $wc -EventName DownloadFileCompleted `
+        -SourceIdentifier Web.DownloadFileCompleted -Action {
+        $Global:downloadComplete = $True
+    }
+    Register-ObjectEvent -InputObject $wc  -EventName DownloadProgressChanged `
+        -SourceIdentifier Web.DownloadProgressChanged -Action {
+        $Global:Data = $event
+    }
+    $wc.DownloadFileAsync($url, $output)
+    While (!($Global:downloadComplete)) {
+        $percent = $Global:Data.SourceArgs.ProgressPercentage
+        $totalBytes = $Global:Data.SourceArgs.TotalBytesToReceive
+        $receivedBytes = $Global:Data.SourceArgs.BytesReceived
+        If ($percent -ne $null) {
+            Write-Progress -Activity ("Downloading file to {0} from {1}" -f $output,$url) -Status ("{0} bytes \ {1} bytes" -f $receivedBytes,$totalBytes)  -PercentComplete $percent
+        }
+    }
+    Write-Progress -Activity ("Downloading file to {0} from {1}" -f $output, $url) -Status ("{0} bytes \ {1} bytes" -f $receivedBytes,$totalBytes)  -Completed
+    Unregister-Event -SourceIdentifier Web.DownloadFileCompleted
+    Unregister-Event -SourceIdentifier Web.DownloadProgressChanged
     $duration = $(Get-Date).Subtract($start_time)
     if ($duration.Seconds -lt 2)
     {
@@ -445,7 +465,7 @@ if (!($PSBoundParameters.ContainsKey('stage')))
     return
 }
 
-# Creat tools directory
+# Create tools directory
 $scriptDir = Get-ScriptDirectory
 $toolsDir = Join-Path -path $scriptDir -ChildPath tools
 New-Item -ItemType Directory -Force -Path $toolsDir | Out-Null

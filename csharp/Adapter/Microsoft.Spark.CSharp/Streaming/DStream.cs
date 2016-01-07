@@ -51,6 +51,14 @@ namespace Microsoft.Spark.CSharp.Streaming
         internal bool isCheckpointed;
 
         internal virtual IDStreamProxy DStreamProxy { get { return dstreamProxy; } }
+        
+        internal bool Piplinable
+        {
+            get
+            {
+                return this is TransformedDStream<T> && !isCached && !isCheckpointed;
+            }
+        }
 
         /// <summary>
         /// Return the slideDuration in seconds of this DStream
@@ -70,8 +78,6 @@ namespace Microsoft.Spark.CSharp.Streaming
             this.streamingContext = streamingContext;
             this.dstreamProxy = dstreamProxy;
             this.serializedMode = serializedMode;
-            isCached = false;
-            isCheckpointed = false;
         }
 
         /// <summary>
@@ -81,7 +87,7 @@ namespace Microsoft.Spark.CSharp.Streaming
         /// <returns></returns>
         public DStream<long> Count()
         {
-            return MapPartitions(x => new long[] { x.LongCount() }).Reduce((x, y) => x + y);
+            return MapPartitionsWithIndex((p, x) => new long[] { x.LongCount() }).Reduce((x, y) => x + y);
         }
 
         /// <summary>
@@ -91,7 +97,7 @@ namespace Microsoft.Spark.CSharp.Streaming
         /// <returns></returns>
         public DStream<T> Filter(Func<T, bool> f)
         {
-            return MapPartitions((new FilterHelper<T>(f)).Execute, true);
+            return MapPartitionsWithIndex((new FilterHelper<T>(f)).Execute, true);
         }
 
         /// <summary>
@@ -192,7 +198,7 @@ namespace Microsoft.Spark.CSharp.Streaming
         /// <returns></returns>
         public DStream<T[]> Glom()
         {
-            return MapPartitions(iter => new List<T[]> { iter.ToArray() });
+            return MapPartitionsWithIndex((pid, iter) => new List<T[]> { iter.ToArray() });
         }
 
         /// <summary>
@@ -311,18 +317,21 @@ namespace Microsoft.Spark.CSharp.Streaming
         /// <returns></returns>
         public DStream<V> TransformWith<U, V>(Func<double, RDD<T>, RDD<U>, RDD<V>> f, DStream<U> other, bool keepSerializer = false)
         {
-            Func<double, RDD<dynamic>, RDD<dynamic>, RDD<dynamic>> func = new TransformWithDynamicHelper<T, U, V>(f).Execute;
+            Func<double, RDD<dynamic>, RDD<dynamic>> prevF = Piplinable ? (this as TransformedDStream<T>).func : null;
+            Func<double, RDD<dynamic>, RDD<dynamic>> otherF = other.Piplinable ? (other as TransformedDStream<U>).func : null;
+
+            Func<double, RDD<dynamic>, RDD<dynamic>, RDD<dynamic>> func = new TransformWithDynamicHelper<T, U, V>(f, prevF, otherF).Execute;
             
             var formatter = new BinaryFormatter();
             var stream = new MemoryStream();
             formatter.Serialize(stream, func);
 
-            return new DStream<V>(SparkCLREnvironment.SparkCLRProxy.CreateCSharpTransformed2DStream(
-                    DStreamProxy, 
-                    other.DStreamProxy, 
-                    stream.ToArray(), 
-                    serializedMode.ToString(), 
-                    other.serializedMode.ToString()), 
+            return new DStream<V>(SparkCLREnvironment.SparkCLRProxy.StreamingContextProxy.CreateCSharpTransformed2DStream(
+                    Piplinable ? prevDStreamProxy : DStreamProxy, 
+                    other.Piplinable ? other.prevDStreamProxy : other.DStreamProxy, 
+                    stream.ToArray(),
+                    (Piplinable ? prevSerializedMode : serializedMode).ToString(), 
+                    (other.Piplinable ? other.prevSerializedMode : other.serializedMode).ToString()), 
                 streamingContext,
                 keepSerializer ? serializedMode : SerializedMode.Byte);
         }
@@ -365,7 +374,7 @@ namespace Microsoft.Spark.CSharp.Streaming
             long fromUnixTime = (long)(fromTimeUtc - startUtc).TotalMilliseconds;
             long toUnixTime = (long)(toTimeUtc - startUtc).TotalMilliseconds;
 
-            return DStreamProxy.Slice(fromUnixTime, toUnixTime).Select(r => new RDD<T>(r, streamingContext.sparkContext, serializedMode)).ToArray();
+            return DStreamProxy.Slice(fromUnixTime, toUnixTime).Select(r => new RDD<T>(r, streamingContext.SparkContext, serializedMode)).ToArray();
         }
 
         internal void ValidatWindowParam(int windowSeconds, int slideSeconds)
@@ -513,8 +522,7 @@ namespace Microsoft.Spark.CSharp.Streaming
 
         internal RDD<dynamic> Execute(double t, RDD<dynamic> rdd)
         {
-            RDD<O> rddo = func(t, new RDD<I>(rdd.rddProxy, rdd.sparkContext, rdd.serializedMode) { previousRddProxy = rdd.previousRddProxy });
-            return new RDD<dynamic>(rddo.RddProxy, rddo.sparkContext) { previousRddProxy = rddo.previousRddProxy };
+            return func(t, rdd.ConvertTo<I>()).ConvertTo<dynamic>();
         }
     }
 
@@ -537,17 +545,25 @@ namespace Microsoft.Spark.CSharp.Streaming
     internal class TransformWithDynamicHelper<T, U, V>
     {
         private readonly Func<double, RDD<T>, RDD<U>, RDD<V>> func;
-        internal TransformWithDynamicHelper(Func<double, RDD<T>, RDD<U>, RDD<V>> f)
+        private readonly Func<double, RDD<dynamic>, RDD<dynamic>> prevFunc;
+        private readonly Func<double, RDD<dynamic>, RDD<dynamic>> otherFunc;
+
+        internal TransformWithDynamicHelper(Func<double, RDD<T>, RDD<U>, RDD<V>> f, Func<double, RDD<dynamic>, RDD<dynamic>> prevF, Func<double, RDD<dynamic>, RDD<dynamic>> otherF)
         {
             func = f;
+            prevFunc = prevF;
+            otherFunc = otherF;
         }
 
         internal RDD<dynamic> Execute(double t, RDD<dynamic> rdd1, RDD<dynamic> rdd2)
         {
-            var rddt = new RDD<T>(rdd1.rddProxy, rdd1.sparkContext, rdd1.serializedMode) { previousRddProxy = rdd1.previousRddProxy };
-            var rddu = new RDD<U>(rdd2.rddProxy, rdd2.sparkContext, rdd2.serializedMode) { previousRddProxy = rdd2.previousRddProxy };
-            var rddv = func(t, rddt, rddu);
-            return new RDD<dynamic>(rddv.RddProxy, rddv.sparkContext) { previousRddProxy = rddv.previousRddProxy };
+            if (prevFunc != null)
+                rdd1 = prevFunc(t, rdd1);
+
+            if (otherFunc != null)
+                rdd2 = otherFunc(t, rdd2);
+            
+            return func(t, rdd1.ConvertTo<T>(), rdd2.ConvertTo<U>()).ConvertTo<dynamic>();
         }
     }
 
@@ -577,7 +593,7 @@ namespace Microsoft.Spark.CSharp.Streaming
 
         internal void Execute(double t, RDD<dynamic> rdd)
         {
-            func(new RDD<I>(rdd.rddProxy, rdd.sparkContext) { previousRddProxy = rdd.previousRddProxy });
+            func(rdd.ConvertTo<I>());
         }
     }
 
@@ -595,8 +611,7 @@ namespace Microsoft.Spark.CSharp.Streaming
 
         internal void Execute(double t, RDD<dynamic> rdd)
         {
-            var sRdd = new RDD<string>(rdd.RddProxy, rdd.sparkContext, rdd.serializedMode);
-            sRdd.SaveAsTextFile(prefix + (long)t + suffix);
+            rdd.ConvertTo<string>().SaveAsTextFile(prefix + (long)t + suffix);
         }
     }
 }

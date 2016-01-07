@@ -57,10 +57,10 @@ namespace AdapterTest
             _mockSparkCLRProxy.Setup(m => m.CreateSparkConf(It.IsAny<bool>())).Returns(new MockSparkConfProxy()); // some of mocks which rarely change can be kept
 
             _mockSparkCLRProxy.Setup(m => m.CreateSparkContext(It.IsAny<ISparkConfProxy>())).Returns(_mockSparkContextProxy.Object);
-            _mockSparkContextProxy.Setup(m => m.CreateStreamingContext(It.IsAny<SparkContext>(), It.IsAny<long>())).Returns(_mockStreamingContextProxy.Object);
+            _mockSparkCLRProxy.Setup(m => m.CreateStreamingContext(It.IsAny<SparkContext>(), It.IsAny<long>())).Returns(_mockStreamingContextProxy.Object);
             _mockRddProxy.Setup(m => m.CollectAndServe()).Returns(() =>
             {
-                TcpListener listener = new TcpListener(IPAddress.Parse("127.0.0.1"), 0);
+                TcpListener listener = new TcpListener(IPAddress.Loopback, 0);
                 listener.Start();
 
                 Task.Run(() =>
@@ -80,6 +80,7 @@ namespace AdapterTest
                 });
                 return (listener.LocalEndpoint as IPEndPoint).Port;
             });
+            _mockRddProxy.Setup(m => m.RDDCollector).Returns(new RDDCollector());
 
             _mockSparkContextProxy.Setup(m => m.CreateCSharpRdd(It.IsAny<IRDDProxy>(), It.IsAny<byte[]>(), It.IsAny<Dictionary<string, string>>(),
                 It.IsAny<List<string>>(), It.IsAny<bool>(), It.IsAny<List<Broadcast>>(), It.IsAny<List<byte[]>>()))
@@ -103,9 +104,14 @@ namespace AdapterTest
                     var formatter = new BinaryFormatter();
                     using (MemoryStream s = new MemoryStream(command))
                     {
+                        int rddId = SerDe.ReadInt(s);
+                        int stageId = SerDe.ReadInt(s);
+                        int partitionId = SerDe.ReadInt(s);
+
                         SerDe.ReadString(s);
                         SerDe.ReadString(s);
-                        var func = (Func<int, IEnumerable<dynamic>, IEnumerable<dynamic>>)formatter.Deserialize(new MemoryStream(SerDe.ReadBytes(s)));
+                        CSharpWorkerFunc workerFunc = (CSharpWorkerFunc)formatter.Deserialize(new MemoryStream(SerDe.ReadBytes(s)));
+                        var func = workerFunc.Func;
                         result = func(default(int), input);
                     }
 
@@ -147,7 +153,7 @@ namespace AdapterTest
 
             mockDStreamProxy.Setup(m => m.AsJavaDStream()).Returns(mockDStreamProxy.Object);
 
-            _mockSparkCLRProxy.Setup(m => m.CreateCSharpDStream(It.IsAny<IDStreamProxy>(), It.IsAny<byte[]>(), It.IsAny<string>()))
+            _mockSparkCLRProxy.Setup(m => m.StreamingContextProxy.CreateCSharpDStream(It.IsAny<IDStreamProxy>(), It.IsAny<byte[]>(), It.IsAny<string>()))
                 .Returns<IDStreamProxy, byte[], string>((jdstream, func, deserializer) =>
                 {
                     Func<double, RDD<dynamic>, RDD<dynamic>> f = (Func<double, RDD<dynamic>, RDD<dynamic>>)new BinaryFormatter().Deserialize(new MemoryStream(func));
