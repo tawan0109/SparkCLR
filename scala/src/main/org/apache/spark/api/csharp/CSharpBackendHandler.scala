@@ -15,15 +15,14 @@ import io.netty.channel.{ChannelHandlerContext, SimpleChannelInboundHandler}
 import org.apache.spark.api.csharp.SerDe._
 
 import scala.collection.mutable.HashMap
-import scala.collection.mutable.HashMap
 
 /**
  * Handler for CSharpBackend.
  * This implementation is identical to RBackendHandler and that can be reused
  * in SparkCLR if SerDe is made pluggable
  */
-// Since SparkCLR is a package to Spark and not a part of spark-core it mirrors the implementation of
-// selected parts from RBackend with SparkCLR customizations
+// Since SparkCLR is a package to Spark and not a part of spark-core, it mirrors the implementation
+// of selected parts from RBackend with SparkCLR customizations
 @Sharable
 class CSharpBackendHandler(server: CSharpBackend) extends SimpleChannelInboundHandler[Array[Byte]] {
 
