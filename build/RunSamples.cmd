@@ -2,6 +2,7 @@
 setlocal enabledelayedexpansion
 
 set VERBOSE=
+set USER_EXE=
 
 :argsloop
 
@@ -13,6 +14,13 @@ if "%1" == "" (
         set VERBOSE="verbose"
         @echo [RunSamples.cmd] VERBOSE is !VERBOSE!
     )
+
+    @rem TODO: this check will fail if "--exe" only exists in the argument list of user application.
+    if "%1" == "--exe" (
+        set USER_EXE="true"
+        @echo [RunSamples.cmd] Run user specified application, instead of SparkCLR samples.
+    )
+
     rem - shift the arguments and examine %1 again
     shift
     goto argsloop
@@ -66,7 +74,12 @@ set SAMPLES_DIR=%SPARKCLR_HOME%\samples
 
 pushd %SPARKCLR_HOME%\scripts
 
-@echo [RunSamples.cmd] call sparkclr-submit.cmd --exe SparkCLRSamples.exe %SAMPLES_DIR% spark.local.dir %TEMP_DIR% sparkclr.sampledata.loc %SPARKCLR_HOME%\data %*
-call sparkclr-submit.cmd --exe SparkCLRSamples.exe %SAMPLES_DIR% spark.local.dir %TEMP_DIR% sparkclr.sampledata.loc %SPARKCLR_HOME%\data %*
+if "!USER_EXE!"=="" (
+    @echo [RunSamples.cmd] call sparkclr-submit.cmd --exe SparkCLRSamples.exe %SAMPLES_DIR% spark.local.dir %TEMP_DIR% sparkclr.sampledata.loc %SPARKCLR_HOME%\data %*
+    call sparkclr-submit.cmd --exe SparkCLRSamples.exe %SAMPLES_DIR% spark.local.dir %TEMP_DIR% sparkclr.sampledata.loc %SPARKCLR_HOME%\data %*
+) else (
+    @echo [RunSamples.cmd] call sparkclr-submit.cmd %*
+    call sparkclr-submit.cmd %*
+)
 
 popd
