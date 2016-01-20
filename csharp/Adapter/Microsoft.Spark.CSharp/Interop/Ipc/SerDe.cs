@@ -174,6 +174,20 @@ namespace Microsoft.Spark.CSharp.Interop.Ipc
             totalWriteNum += 1;
         }
 
+        public static void WriteBytes(Stream s, byte[] value)
+        {
+            if (value == null || value.Length == 0)
+            {
+                Write(s, 0);
+            }
+            else
+            {
+                Write(s, value.Length);
+                Write(s, value);
+            }
+            
+        }
+
         public static void Write(Stream s, byte[] value)
         {
             s.Write(value, 0, value.Length);

@@ -380,6 +380,19 @@ namespace Microsoft.Spark.CSharp.Streaming
                     (self.Piplinable ? self.prevSerializedMode : self.serializedMode).ToString()),
                 self.streamingContext);
         }
+
+        /// <summary>
+        /// Return a [[MapWithStateDStream]] by applying a function to every key-value element of `this` stream, 
+        /// while maintaining some state data for each unique key. The mapping function and other specification (e.g. partitioners, timeouts, initial state data, etc.) of this 
+        /// transformation can be specified using [[StateSpec]] class. The state data is accessible in as a parameter of type [[State]] in the mapping function.
+        /// </summary>
+        /// <typeparam name="S">Class type of the state data</typeparam>
+        /// <typeparam name="M">Class type of the mapped data</typeparam>
+        /// <param name="spec">Specification of this transformation</param>
+        public static DStream<KeyValuePair<K, S>> UpdateStateByKey<K, V, S, M>(this DStream<KeyValuePair<K, V>> self, StateSpec<K, V, S, M> spec)
+        {
+
+        }
     }
 
     /// <summary>

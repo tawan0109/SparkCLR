@@ -193,6 +193,19 @@ namespace Microsoft.Spark.CSharp
                                 Pickler pickler = new Pickler();
                                 buffer = pickler.dumps(new ArrayList { message });
                             }
+                            else if (serializerMode == "Triple")
+                            {
+                                var mm = new MemoryStream();
+                                // TODO: check the size of triple
+                                (message as dynamic[]).ToList().ForEach(b =>
+                                {
+                                    var ms = new MemoryStream();
+                                    formatter.Serialize(ms, message);
+                                    SerDe.WriteBytes(mm ,ms.ToArray());
+                                });
+
+                                buffer = mm.ToArray();
+                            }
                             else
                             {
                                 try
