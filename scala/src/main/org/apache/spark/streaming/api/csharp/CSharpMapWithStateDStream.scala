@@ -174,7 +174,7 @@ private[spark] class CSharpMapWithStateRDD (
       }
     }
 
-    runner.compute(new MapWithStateDataIterator(dataIterator, newStateMap), partition.index, context).foreach(processResult(_))
+    runner.compute(new MapWithStateDataIterator(dataIterator, newStateMap, batchTime), partition.index, context).foreach(processResult(_))
     if (timeoutThresholdTime.isDefined) {
       newStateMap.getByTime(timeoutThresholdTime.get).foreach { case (key, state, _) =>
         // TODO apply command to these timeout keys
@@ -218,7 +218,9 @@ private [streaming] object CSharpMapWithStateRDD {
 
 private[streaming] class MapWithStateDataIterator(
   dataIterator: Iterator[(String, Array[Byte])],
-  stateMap: StateMap[String, Array[Byte]]) extends Iterator[(Array[Byte])] {
+  stateMap: StateMap[String, Array[Byte]],
+  batchTime: Time)
+  extends Iterator[(Array[Byte])] {
 
   def hasNext = dataIterator.hasNext
 
@@ -227,10 +229,12 @@ private[streaming] class MapWithStateDataIterator(
 
     stateMap.get(key) match {
       case Some(stateBytes) =>
-        pairBytes ++ ByteBuffer.allocate(4).putInt(stateBytes.length).array() ++ stateBytes
+        pairBytes ++ ByteBuffer.allocate(4).putInt(stateBytes.length).array() ++ stateBytes ++
+          ByteBuffer.allocate(4).putLong(batchTime.milliseconds * 1000).array()
 
       case None =>
-        pairBytes ++ ByteBuffer.allocate(4).putInt(0).array()
+        pairBytes ++ ByteBuffer.allocate(4).putInt(0).array() ++
+          ByteBuffer.allocate(8).putLong(batchTime.milliseconds * 1000).array()
     }
   }
 }

@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.Serialization;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Text;
 using System.Threading.Tasks;
@@ -428,34 +429,83 @@ namespace Microsoft.Spark.CSharp.Streaming
     [Serializable]
     internal class MapWithStateHelper<K, V, S, M>
     {
-        private readonly Func<int, K, V, State<S>, M> func;
+        private readonly Func<DateTime, K, V, State<S>, M> func;
 
-        internal MapWithStateHelper(Func<int, K, V, State<S>, M> f)
+        internal MapWithStateHelper(Func<DateTime, K, V, State<S>, M> f)
         {
             func = f;
         }
 
         internal IEnumerable<byte[]> Execute(int index, IEnumerable<byte[]> input)
         {
-            return input.Select(e => Process(index, e));
+            return input.Select(e => Process(e));
         }
 
-        internal byte[] Process(int index, byte[] input)
+        internal byte[] Process(byte[] input)
         {
+            var formatter = new BinaryFormatter();
             var stream = new MemoryStream(input);
-            var key = ReadObject(stream);
-            var value = ReadObject(stream);
-            var state = new State<S>().Wrap(ReadObject(stream));
 
-            var ret = func(index, key, value, state);
+            int keyLen;
+            byte[] keyBytes;
+            dynamic key = ReadObject(formatter, stream, out keyLen, out keyBytes);
 
-            // TODO
-            return ret;
+            dynamic value = ReadObject(formatter, stream);
+
+            var stateWrapper = new State<S>(ReadObject(formatter, stream));
+
+            var batchTime = new DateTime(SerDe.ReadLong(stream));
+
+            var ret = func(batchTime, key, value, stateWrapper);
+
+            var outputStream = new MemoryStream();
+            SerDe.Write(outputStream, keyLen);
+            SerDe.Write(outputStream, keyBytes);
+
+            WriteObject(formatter, outputStream, ret);
+
+            if (stateWrapper.removed)
+            {
+                SerDe.Write(outputStream, 3);
+            }
+            else if(stateWrapper.updated)
+            {
+                SerDe.Write(outputStream, 1);
+                WriteObject(formatter, stream, stateWrapper.state);
+            }else if (stateWrapper.defined)
+            {
+                SerDe.Write(outputStream, 2);
+                WriteObject(formatter, stream, stateWrapper.state);
+            }
+            
+            return outputStream.ToArray();
         }
 
-        internal dynamic ReadObject(Stream stream)
+        internal void WriteObject(IFormatter formatter, Stream stream, object obj)
         {
-            return null;
+            var ms = new MemoryStream();
+            formatter.Serialize(ms, obj);
+            SerDe.WriteBytes(stream, ms.ToArray());
+        }
+
+        internal dynamic ReadObject(IFormatter formatter, Stream stream)
+        {
+            int len;
+            byte[] bytes;
+            return ReadObject(formatter, stream, out len, out bytes);
+        }
+
+        internal dynamic ReadObject(IFormatter formatter, Stream stream, out int len, out byte[] bytes)
+        {
+            len = SerDe.ReadInt(stream);
+            if (len == 0)
+            {
+                bytes = new byte[0];
+                return null;
+            }
+
+            bytes = SerDe.ReadBytes(stream, len);
+            return formatter.Deserialize(new MemoryStream(bytes));
         }
     }
 

@@ -9,12 +9,22 @@ namespace Microsoft.Spark.CSharp.Streaming
     [Serializable]
     public class State<S>
     {
-        private S state = default(S);
+        internal S state = default(S);
 
-        private bool defined = false;
-        private bool timingOut = false;
-        private bool updated = false;
-        private bool removed = false;
+        internal bool defined = false;
+        internal bool timingOut = false;
+        internal bool updated = false;
+        internal bool removed = false;
+
+        internal State(S s)
+        {
+            this.state = s;
+            defined = !object.ReferenceEquals(null, s);
+
+            timingOut = false;
+            removed = false;
+            updated = false;
+        }
 
         public bool Exists()
         {
@@ -58,24 +68,6 @@ namespace Microsoft.Spark.CSharp.Streaming
         public bool IsTimingOut()
         {
             return timingOut;
-        }
-
-        internal State<S> Wrap(S state)
-        {
-            this.state = state;
-            if (object.ReferenceEquals(null, state))
-            {
-                defined = false;
-            }
-            else
-            {
-                defined = true;
-            }
-
-            timingOut = false;
-            removed = false;
-            updated = false;
-            return this;
         }
     }
 }
