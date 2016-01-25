@@ -4,6 +4,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Runtime.Serialization.Formatters.Binary;
 using System.Text;
 using AdapterTest.Mocks;
 using Microsoft.Spark.CSharp.Core;
@@ -97,5 +98,57 @@ namespace AdapterTest
             ms.Position = 0;
             Assert.IsNull(SerDe.ReadBytes(ms));
         }
+
+        [Test]
+        public void TestBytesEquality()
+        {
+            var formatter = new BinaryFormatter();
+            var ms = new MemoryStream();
+            long v = 10255L;
+            formatter.Serialize(ms, v);
+            Console.WriteLine(string.Join("", ms.ToArray()));
+
+            var ms2 = new MemoryStream();
+            long v2 = 10255L;
+            formatter.Serialize(ms2, v2);
+            Console.WriteLine(string.Join("", ms2.ToArray()));
+
+            Assert.AreEqual(ms.ToArray(), ms2.ToArray());
+        }
+
+        [Test]
+        public void TestBytesEquality2()
+        {
+            var formatter = new BinaryFormatter();
+            var ms = new MemoryStream();
+            var key1 = new Userkey
+            {
+                name = "name1",
+                age = 20,
+                value = 0.34
+            };
+            formatter.Serialize(ms, key1);
+            Console.WriteLine(string.Join("", ms.ToArray()));
+
+            var ms2 = new MemoryStream();
+            var key2 = new Userkey
+            {
+                name = "name1",
+                age = 20,
+                value = 0.34
+            };
+            formatter.Serialize(ms2, key2);
+            Console.WriteLine(string.Join("", ms2.ToArray()));
+
+            Assert.AreEqual(ms.ToArray(), ms2.ToArray());
+        }
+    }
+
+    [Serializable]
+    class Userkey
+    {
+        public string name;
+        public int age;
+        public double value;
     }
 }

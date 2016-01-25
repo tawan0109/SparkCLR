@@ -5,9 +5,14 @@
 package org.apache.spark.launcher
 
 import java.io.{File, OutputStream, PrintStream}
+import java.nio.ByteBuffer
 
+import org.apache.commons.codec.binary.Hex
 import org.apache.commons.io.FileUtils
+import org.apache.commons.lang.StringUtils
+import org.apache.spark.api.r.SerDe
 import org.apache.spark.csharp.SparkCLRFunSuite
+import org.apache.spark.util.collection.OpenHashMap
 import org.scalatest.Matchers
 import org.scalatest.concurrent.Timeouts
 
@@ -405,5 +410,21 @@ class SparkCLRSubmitArgumentsSuite extends SparkCLRFunSuite with Matchers with T
         s" $executableName" +
         " " +
         args.mkString(" ")
+  }
+
+  test("openhashmap") {
+    var deltaMap = new OpenHashMap[String, Integer](10)
+    var buffer = ByteBuffer.allocate(20);
+    buffer.putInt(535353)
+    buffer.putDouble(333333.2023030)
+    var key1 = new String(Hex.encodeHex(buffer.array()))
+    deltaMap.update(key1, 20)
+
+    var buffer2 = ByteBuffer.allocate(20);
+    buffer2.putInt(535353)
+    buffer2.putDouble(333333.2023030)
+
+    var key2 = new String(Hex.encodeHex(buffer2.array()))
+    println(deltaMap.contains(key2))
   }
 }

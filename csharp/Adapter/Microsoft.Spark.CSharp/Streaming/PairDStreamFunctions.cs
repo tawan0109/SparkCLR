@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 
 using Microsoft.Spark.CSharp.Core;
 using Microsoft.Spark.CSharp.Interop;
+using Microsoft.Spark.CSharp.Interop.Ipc;
 
 namespace Microsoft.Spark.CSharp.Streaming
 {
@@ -386,12 +387,75 @@ namespace Microsoft.Spark.CSharp.Streaming
         /// while maintaining some state data for each unique key. The mapping function and other specification (e.g. partitioners, timeouts, initial state data, etc.) of this 
         /// transformation can be specified using [[StateSpec]] class. The state data is accessible in as a parameter of type [[State]] in the mapping function.
         /// </summary>
-        /// <typeparam name="S">Class type of the state data</typeparam>
-        /// <typeparam name="M">Class type of the mapped data</typeparam>
-        /// <param name="spec">Specification of this transformation</param>
-        public static DStream<KeyValuePair<K, S>> UpdateStateByKey<K, V, S, M>(this DStream<KeyValuePair<K, V>> self, StateSpec<K, V, S, M> spec)
+        public static DStream<M> MapWithState<K, V, S, M>(this DStream<KeyValuePair<K, V>> self, Func<int, K, V, State<S>, M> mapWithStateFunc)
         {
+            DStream<byte[]> bDStream = self.Map(new KeyValuePair2BytesHelper<K, V>().Execute);
+            bDStream.serializedMode = SerializedMode.None;
+            Func<int, IEnumerable<byte[]>, IEnumerable<byte[]>> func = new MapWithStateHelper<K, V, S, M>(mapWithStateFunc).Execute;
 
+            var formatter = new BinaryFormatter();
+            var stream = new MemoryStream();
+            formatter.Serialize(stream, func);
+
+            return 
+                new DStream<KeyValuePair<K, S>>(
+                SparkCLREnvironment.SparkCLRProxy.StreamingContextProxy.CreateCSharpStateDStream(bDStream.DStreamProxy, stream.ToArray(), "CSharpMapWithStateDStream", "None", "None"),
+                self.streamingContext).
+                Map(bytes => default(M)); // TODO: deserialize from bytes using BinaryFormatter
+        }
+    }
+
+    [Serializable]
+    internal class KeyValuePair2BytesHelper<K, V>
+    {
+        internal byte[] Execute<K, V>(KeyValuePair<K, V> pair)
+        {
+            var formatter = new BinaryFormatter();
+            var ms = new MemoryStream();
+            formatter.Serialize(ms, pair.Key);
+
+            var buffer = new MemoryStream();
+            SerDe.Write(buffer, ms.ToArray());
+           
+            var ms2 = new MemoryStream();
+            formatter.Serialize(ms2, pair.Value);
+            SerDe.Write(buffer, ms2.ToArray());
+
+            return buffer.ToArray();
+        }
+    }
+
+    [Serializable]
+    internal class MapWithStateHelper<K, V, S, M>
+    {
+        private readonly Func<int, K, V, State<S>, M> func;
+
+        internal MapWithStateHelper(Func<int, K, V, State<S>, M> f)
+        {
+            func = f;
+        }
+
+        internal IEnumerable<byte[]> Execute(int index, IEnumerable<byte[]> input)
+        {
+            return input.Select(e => Process(index, e));
+        }
+
+        internal byte[] Process(int index, byte[] input)
+        {
+            var stream = new MemoryStream(input);
+            var key = ReadObject(stream);
+            var value = ReadObject(stream);
+            var state = new State<S>().Wrap(ReadObject(stream));
+
+            var ret = func(index, key, value, state);
+
+            // TODO
+            return ret;
+        }
+
+        internal dynamic ReadObject(Stream stream)
+        {
+            return null;
         }
     }
 
