@@ -15,6 +15,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using Microsoft.Spark.CSharp.Core;
+using Microsoft.Spark.CSharp.Interop;
 using Microsoft.Spark.CSharp.Interop.Ipc;
 using Microsoft.Spark.CSharp.Services;
 
@@ -124,6 +125,15 @@ namespace Microsoft.Spark.CSharp.Proxy.Ipc
 
             var jvmDStreamReference = SparkCLRIpcProxy.JvmBridge.CallConstructor("org.apache.spark.streaming.api.csharp.CSharpReducedWindowedDStream",
                 new object[] { (jdstream as DStreamIpcProxy).jvmDStreamReference, func, invFunc, windowDurationReference, slideDurationReference, serializationMode });
+
+            var javaDStreamReference = new JvmObjectReference((string)SparkCLRIpcProxy.JvmBridge.CallNonStaticJavaMethod(jvmDStreamReference, "asJavaDStream"));
+            return new DStreamIpcProxy(javaDStreamReference, jvmDStreamReference);
+        }
+
+        public IDStreamProxy CreateCSharpMapStateDStream(IDStreamProxy jdstream, byte[] func, long timeoutIntervalInMillis)
+        {
+            var jvmDStreamReference = SparkCLRIpcProxy.JvmBridge.CallConstructor("org.apache.spark.streaming.api.csharp.CSharpMapWithStateDStream",
+                new object[] { (jdstream as DStreamIpcProxy).jvmDStreamReference, func, timeoutIntervalInMillis, SparkCLREnvironment.ConfigurationService.GetCSharpWorkerExePath() });
 
             var javaDStreamReference = new JvmObjectReference((string)SparkCLRIpcProxy.JvmBridge.CallNonStaticJavaMethod(jvmDStreamReference, "asJavaDStream"));
             return new DStreamIpcProxy(javaDStreamReference, jvmDStreamReference);

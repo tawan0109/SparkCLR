@@ -58,11 +58,10 @@ namespace Microsoft.Spark.CSharp
                 () =>
                 {
                     SparkContext sc = SparkCLRSamples.SparkContext;
-                    StreamingContext context = new StreamingContext(sc, 2000);
+                    StreamingContext context = new StreamingContext(sc, 60000);
                     context.Checkpoint(checkpointPath);
 
                     var lines = context.TextFileStream(Path.Combine(directory, "test"));
-                    lines = context.Union(lines, lines);
                     var words = lines.FlatMap(l => l.Split(' '));
                     var pairs = words.Map(w => new KeyValuePair<string, int>(w, 1));
 
@@ -70,8 +69,24 @@ namespace Microsoft.Spark.CSharp
                     // separate dstream transformations defined in CSharpDStream.scala
                     // an extra CSharpRDD is introduced in between these operations
                     var wordCounts = pairs.ReduceByKey((x, y) => x + y);
-                    var join = wordCounts.Join(wordCounts, 2);
-                    var state = join.UpdateStateByKey<string, Tuple<int, int>, int>((vs, s) => vs.Sum(x => x.Item1 + x.Item2) + s);
+                    // var join = wordCounts.Join(wordCounts, 2);
+                    var state = wordCounts.MapWithState<string, int, int, int>(
+                        (batchTime, word, v, s) =>
+                        {
+                            var total = 0;
+                            try
+                            {
+                                total = s.Get();
+                            }
+                            catch (Exception)
+                            { 
+                                // todo
+                            }
+                            total += v;
+                            s.Update(total);
+                            return total;
+                        });
+                   // var state = join.UpdateStateByKey<string, Tuple<int, int>, int>((vs, s) => vs.Sum(x => x.Item1 + x.Item2) + s);
 
                     state.ForeachRDD((time, rdd) =>
                     {

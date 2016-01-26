@@ -36,9 +36,4 @@ namespace Microsoft.Spark.CSharp.Streaming
             return null;
         }
     }
-
-    internal class InternalMapWithStateDStream
-    {
-        
-    }
 }

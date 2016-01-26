@@ -388,30 +388,54 @@ namespace Microsoft.Spark.CSharp.Streaming
         /// while maintaining some state data for each unique key. The mapping function and other specification (e.g. partitioners, timeouts, initial state data, etc.) of this 
         /// transformation can be specified using [[StateSpec]] class. The state data is accessible in as a parameter of type [[State]] in the mapping function.
         /// </summary>
-        public static DStream<M> MapWithState<K, V, S, M>(this DStream<KeyValuePair<K, V>> self, Func<int, K, V, State<S>, M> mapWithStateFunc)
+        public static DStream<M> MapWithState<K, V, S, M>(this DStream<KeyValuePair<K, V>> self, Func<DateTime, K, V, State<S>, M> mapWithStateFunc)
         {
             DStream<byte[]> bDStream = self.Map(new KeyValuePair2BytesHelper<K, V>().Execute);
             bDStream.serializedMode = SerializedMode.None;
+
             Func<int, IEnumerable<byte[]>, IEnumerable<byte[]>> func = new MapWithStateHelper<K, V, S, M>(mapWithStateFunc).Execute;
 
             var formatter = new BinaryFormatter();
             var stream = new MemoryStream();
             formatter.Serialize(stream, func);
-
             return 
-                new DStream<KeyValuePair<K, S>>(
-                SparkCLREnvironment.SparkCLRProxy.StreamingContextProxy.CreateCSharpStateDStream(bDStream.DStreamProxy, stream.ToArray(), "CSharpMapWithStateDStream", "None", "None"),
+                new DStream<byte[]>(
+                SparkCLREnvironment.SparkCLRProxy.StreamingContextProxy.CreateCSharpMapStateDStream(
+                bDStream.DStreamProxy, stream.ToArray(), 1000000L),
                 self.streamingContext).
-                Map(bytes => default(M)); // TODO: deserialize from bytes using BinaryFormatter
+                Map(new DeserializeHelper<M>().Execute);
+        }
+    }
+
+    [Serializable]
+    internal class DeserializeHelper<M>
+    {
+        [NonSerialized]
+        private IFormatter formatter = new BinaryFormatter();
+
+        internal M Execute(byte[] bytes)
+        {
+            if (formatter == null)
+            {
+                formatter = new BinaryFormatter();
+            }
+
+            return (M) formatter.Deserialize(new MemoryStream(bytes));
         }
     }
 
     [Serializable]
     internal class KeyValuePair2BytesHelper<K, V>
     {
+        [NonSerialized]
+        private IFormatter formatter = new BinaryFormatter();
+
         internal byte[] Execute<K, V>(KeyValuePair<K, V> pair)
         {
-            var formatter = new BinaryFormatter();
+            if (formatter == null)
+            {
+                formatter = new BinaryFormatter();
+            }
             var ms = new MemoryStream();
             formatter.Serialize(ms, pair.Key);
 
@@ -454,7 +478,7 @@ namespace Microsoft.Spark.CSharp.Streaming
 
             var stateWrapper = new State<S>(ReadObject(formatter, stream));
 
-            var batchTime = new DateTime(SerDe.ReadLong(stream));
+            var batchTime = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddMilliseconds(SerDe.ReadLong(stream));
 
             var ret = func(batchTime, key, value, stateWrapper);
 
@@ -472,7 +496,8 @@ namespace Microsoft.Spark.CSharp.Streaming
             {
                 SerDe.Write(outputStream, 1);
                 WriteObject(formatter, stream, stateWrapper.state);
-            }else if (stateWrapper.defined)
+            }
+            else if (stateWrapper.defined)
             {
                 SerDe.Write(outputStream, 2);
                 WriteObject(formatter, stream, stateWrapper.state);

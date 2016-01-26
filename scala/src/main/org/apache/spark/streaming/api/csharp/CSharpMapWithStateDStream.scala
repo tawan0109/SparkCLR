@@ -4,6 +4,7 @@ import java.nio.ByteBuffer
 
 import org.apache.spark.api.python.{PythonBroadcast, PythonRunner}
 import org.apache.spark.broadcast.Broadcast
+import org.apache.spark.streaming.api.java.JavaDStream
 import org.apache.spark.streaming.util.{StateMap, EmptyStateMap}
 import org.apache.spark.util.Utils
 import org.apache.spark._
@@ -23,13 +24,36 @@ import org.apache.spark.streaming.dstream._
 import scala.language.existentials
 
 
-class CSharpMapWithStateDStream(
-         parent: DStream[Array[Byte]],
-         func: Array[Byte],
-         spec: StateSpecImpl[Array[Byte], Array[Byte], Array[Byte], Array[Byte]],
-         envVars: JMap[String, String],
-         pythonIncludes: JList[String],
-         csharpWorkerExec: String)
+private[streaming] class CSharpMapWithStateDStream(
+                            parent: DStream[Array[Byte]],
+                            func: Array[Byte],
+                            timeoutIntervalInMillis: Long,
+                            csharpWorkerExec: String)
+  extends DStream[Array[Byte]](parent.context) {
+
+  private val internalStream =
+    new InternalCSharpMapWithStateDStream(parent, func, timeoutIntervalInMillis, csharpWorkerExec)
+
+  def slideDuration: Duration = internalStream.slideDuration
+
+  def dependencies: List[DStream[_]] = List(internalStream)
+
+  val asJavaDStream: JavaDStream[Array[Byte]] = JavaDStream.fromDStream(this)
+
+  override def compute(validTime: Time): Option[RDD[Array[Byte]]] = {
+    internalStream.getOrCompute(validTime).map {
+      _.flatMap[Array[Byte]] {
+        _.mappedData
+      }
+    }
+  }
+}
+
+private[streaming] class InternalCSharpMapWithStateDStream(
+                                       parent: DStream[Array[Byte]],
+                                       func: Array[Byte],
+                                       timeoutIntervalInMillis: Long,
+                                       csharpWorkerExec: String)
   extends DStream[MapWithStateRDDRecord[String, Array[Byte], Array[Byte]]](parent.context) {
 
   persist(StorageLevel.MEMORY_ONLY)
@@ -52,7 +76,7 @@ class CSharpMapWithStateDStream(
     val prevStateRDD = getOrCompute(validTime - slideDuration) match {
       case Some(rdd) => if (rdd.partitioner != Some(partitioner)) {
         CSharpMapWithStateRDD.createFromRDD(
-          rdd.flatMap { _.stateMap.getAll() }, partitioner, validTime, csharpWorkerExec, envVars)
+          rdd.flatMap { _.stateMap.getAll() }, partitioner, validTime, csharpWorkerExec)
         } else {
           rdd
         }
@@ -60,17 +84,13 @@ class CSharpMapWithStateDStream(
         new EmptyRDD[MapWithStateRDDRecord[String, Array[Byte], Array[Byte]]](ssc.sparkContext)
     }
 
-    def base64Key(bytes: Array[Byte]): String = {
-      Base64.getEncoder.encodeToString(ByteBuffer.wrap(bytes, 4, ByteBuffer.wrap(bytes, 0, 4).getInt).array())
-    }
-
     val dataRDD = parent.getOrCompute(validTime).getOrElse {
       context.sparkContext.emptyRDD[Array[Byte]]
-    }.map(e => (base64Key(e), e))
+    }.map(e => (Base64.getEncoder.encodeToString(ByteBuffer.wrap(e, 4, ByteBuffer.wrap(e, 0, 4).getInt).array()), e))
 
-    val timeoutThresholdTime = spec.getTimeoutInterval().map { interval =>
-      (validTime - interval).milliseconds
-    }
+    println("---------------dataRDD.count():" + dataRDD.count())
+
+    val timeoutThresholdTime = Some(validTime.milliseconds - timeoutIntervalInMillis)
 
     Some(new CSharpMapWithStateRDD(
       prevStateRDD,
@@ -78,13 +98,7 @@ class CSharpMapWithStateDStream(
       func,
       validTime,
       timeoutThresholdTime,
-      csharpWorkerExec,
-      envVars))
-  }
-
-  /** Return a pair DStream where each RDD is the snapshot of the state of all the keys. */
-  def stateSnapshots(): DStream[(String, Array[Byte])] = {
-    flatMap { _.stateMap.getAll().map { case (k, s, _) => (k, s) }.toTraversable }
+      csharpWorkerExec))
   }
 }
 
@@ -94,9 +108,12 @@ private[spark] class CSharpMapWithStateRDD (
         command: Array[Byte],
         batchTime: Time,
         timeoutThresholdTime: Option[Long],
-        csharpWorkerExec: String,
-        envVars: JMap[String, String])
-  extends RDD[MapWithStateRDDRecord[String, Array[Byte], Array[Byte]]](prevStateRDD) {
+        csharpWorkerExec: String)
+  extends RDD[MapWithStateRDDRecord[String, Array[Byte], Array[Byte]]](
+    partitionedDataRDD.sparkContext,
+    List(
+      new OneToOneDependency[MapWithStateRDDRecord[String, Array[Byte], Array[Byte]]](prevStateRDD),
+      new OneToOneDependency(partitionedDataRDD))) {
 
   val bufferSize = conf.getInt("spark.buffer.size", 65536)
   val reuse_worker = conf.getBoolean("spark.python.worker.reuse", true)
@@ -118,6 +135,7 @@ private[spark] class CSharpMapWithStateRDD (
       context: TaskContext):
           Iterator[MapWithStateRDDRecord[String, Array[Byte], Array[Byte]]] = {
 
+    println("Start to compute for CSharpMapWithStateRDD.")
     val stateRDDPartition = partition.asInstanceOf[CSharpMapWithStateRDDPartition]
     val prevStateRDDIterator = prevStateRDD.iterator(
       stateRDDPartition.previousSessionRDDPartition, context)
@@ -141,6 +159,7 @@ private[spark] class CSharpMapWithStateRDD (
       reuse_worker)
 
     def processResult(bytes: Array[Byte]): Unit = {
+      println("Start to process result.")
       val buffer = ByteBuffer.wrap(bytes)
       // read key
       val keyLen = buffer.getInt
@@ -166,14 +185,15 @@ private[spark] class CSharpMapWithStateRDD (
         valueLen match {
           case 0 => None
           case _ => {
-            val bytes = Some(ByteBuffer.wrap(bytes, offset, buffer.getInt).array())
+            val retBytes = Some(ByteBuffer.wrap(bytes, offset, buffer.getInt).array())
             buffer.position(buffer.position() + valueLen)
-            bytes
+            retBytes
           }
         }
       }
     }
 
+    println("Start python runner.")
     runner.compute(new MapWithStateDataIterator(dataIterator, newStateMap, batchTime), partition.index, context).foreach(processResult(_))
     if (timeoutThresholdTime.isDefined) {
       newStateMap.getByTime(timeoutThresholdTime.get).foreach { case (key, state, _) =>
@@ -197,8 +217,7 @@ private [streaming] object CSharpMapWithStateRDD {
                rdd: RDD[(String, Array[Byte], Long)],
                partitioner: Partitioner,
                updateTime: Time,
-               csharpWorkerExec: String,
-               envVars: JMap[String, String]): CSharpMapWithStateRDD = {
+               csharpWorkerExec: String): CSharpMapWithStateRDD = {
 
     val pairRDD = rdd.map { x => (x._1, (x._2, x._3)) }
     val stateRDD = pairRDD.partitionBy(partitioner).mapPartitions({ iterator =>
@@ -212,7 +231,7 @@ private [streaming] object CSharpMapWithStateRDD {
     val emptyDataRDD = pairRDD.sparkContext.emptyRDD[(String, Array[Byte])].partitionBy(partitioner)
 
     // FIXME: command should not be a zero-length array
-    new CSharpMapWithStateRDD(stateRDD, emptyDataRDD, new Array[Byte](0), updateTime, None, csharpWorkerExec, envVars)
+    new CSharpMapWithStateRDD(stateRDD, emptyDataRDD, new Array[Byte](0), updateTime, None, csharpWorkerExec)
   }
 }
 
@@ -225,16 +244,17 @@ private[streaming] class MapWithStateDataIterator(
   def hasNext = dataIterator.hasNext
 
   def next = {
+    println("Start to read next element in dataIterator.")
     val (key, pairBytes) = dataIterator.next()
-
+    println("Finish to read next element in dataIterator.")
     stateMap.get(key) match {
       case Some(stateBytes) =>
         pairBytes ++ ByteBuffer.allocate(4).putInt(stateBytes.length).array() ++ stateBytes ++
-          ByteBuffer.allocate(4).putLong(batchTime.milliseconds * 1000).array()
+          ByteBuffer.allocate(8).putLong(batchTime.milliseconds).array()
 
       case None =>
         pairBytes ++ ByteBuffer.allocate(4).putInt(0).array() ++
-          ByteBuffer.allocate(8).putLong(batchTime.milliseconds * 1000).array()
+          ByteBuffer.allocate(8).putLong(batchTime.milliseconds).array()
     }
   }
 }
@@ -244,8 +264,8 @@ private[streaming] class CSharpMapWithStateRDDPartition(
            @transient var prevStateRDD: RDD[_],
            @transient var partitionedDataRDD: RDD[_]) extends Partition {
 
-  private[rdd] var previousSessionRDDPartition: Partition = null
-  private[rdd] var partitionedDataRDDPartition: Partition = null
+  private[streaming] var previousSessionRDDPartition: Partition = null
+  private[streaming] var partitionedDataRDDPartition: Partition = null
 
   override def hashCode(): Int = idx
 
