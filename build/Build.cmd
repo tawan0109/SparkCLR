@@ -1,8 +1,14 @@
+@setlocal
 @echo OFF
-setlocal
+
+if "%1" == "csharp" set buildCSharp=true
+
+SET CMDHOME=%~dp0
+@REM Remove trailing backslash \
+set CMDHOME=%CMDHOME:~0,-1%
 
 @rem check prerequisites
-call .\localmode\precheck.cmd
+call "%CMDHOME%\localmode\precheck.cmd"
 
 if %precheck% == "bad" (goto :eof)
 
@@ -10,17 +16,15 @@ if %precheck% == "bad" (goto :eof)
 powershell -Command Set-ExecutionPolicy -Scope CurrentUser Unrestricted
 
 @rem download build tools
-pushd %~dp0
+pushd "%CMDHOME%"
 powershell -f localmode\downloadtools.ps1 build
 call tools\updatebuildtoolenv.cmd
 popd
 
-SET CMDHOME=%~dp0
-@REM Remove trailing backslash \
-set CMDHOME=%CMDHOME:~0,-1%
-
 set SPARKCLR_HOME=%CMDHOME%\runtime
 @echo SPARKCLR_HOME=%SPARKCLR_HOME%
+
+if defined buildCSharp goto :buildCSharp
 
 if EXIST "%SPARKCLR_HOME%" (
     @echo Delete existing %SPARKCLR_HOME% ...
@@ -37,7 +41,7 @@ if NOT EXIST "%SPARKCLR_HOME%\samples" mkdir "%SPARKCLR_HOME%\samples"
 pushd "%CMDHOME%\..\scala"
 
 @rem clean the target directory first
-call mvn.cmd clean
+call mvn.cmd %MVN_QUIET% clean
 
 @rem
 @rem Note: Shade-plugin helps creates an uber-package to simplify SparkCLR job submission;
@@ -51,7 +55,7 @@ copy /y pom.xml %temp%\pom.xml.patched
 IF "%APPVEYOR_REPO_TAG%" == "true" (goto :sign)
 
     @rem build the package
-    call mvn.cmd package -Puber-jar
+    call mvn.cmd %MVN_QUIET% package -Puber-jar
     goto :mvndone
 
 :sign
@@ -71,7 +75,7 @@ IF "%APPVEYOR_REPO_TAG%" == "true" (goto :sign)
     gpg2 --list-key
     
     @rem build the package, sign, deploy to maven central
-    call mvn clean deploy -Puber-jar -DdoSign=true -DdoRelease=true
+    call mvn %MVN_QUIET% clean deploy -Puber-jar -DdoSign=true -DdoRelease=true
 
 :mvndone
 
@@ -81,13 +85,13 @@ IF "%APPVEYOR_REPO_TAG%" == "true" (goto :sign)
 copy /y %temp%\pom.xml.original pom.xml
 
 if %ERRORLEVEL% NEQ 0 (
-    @echo Build SparkCLR Scala components failed, stop building.
-    popd
-    goto :eof
+  @echo Build SparkCLR Scala components failed, stop building.
+  popd
+  goto :eof
 )
 
 @echo SparkCLR Scala binaries
-copy /y target\*.jar "%SPARKCLR_HOME%\lib\"
+copy /y target\spark*.jar "%SPARKCLR_HOME%\lib\"
 popd
 
 @REM Any .jar files under the lib directory will be copied to the staged runtime lib tree.
@@ -99,6 +103,7 @@ if EXIST "%CMDHOME%\lib" (
   )
 )
 
+:buildCSharp
 @echo Assemble SparkCLR C# components
 pushd "%CMDHOME%\..\csharp"
 
@@ -107,9 +112,9 @@ call Clean.cmd
 call Build.cmd
 
 if %ERRORLEVEL% NEQ 0 (
-    @echo Build SparkCLR C# components failed, stop building.
-    popd
-    goto :eof
+  @echo Build SparkCLR C# components failed, stop building.
+  popd
+  goto :eof
 )
 
 @echo SparkCLR C# binaries
@@ -128,7 +133,7 @@ popd
 xcopy /e /y "%CMDHOME%\..\scripts"  "%SPARKCLR_HOME%\scripts\"
 
 @echo Make distribution
-pushd %~dp0
+pushd "%CMDHOME%"
 if not exist ".\target" (mkdir .\target)
 
 if not defined ProjectVersion (
