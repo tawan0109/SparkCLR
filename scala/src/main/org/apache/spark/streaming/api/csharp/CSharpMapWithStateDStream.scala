@@ -93,35 +93,36 @@ private[streaming] class InternalCSharpMapWithStateDStream(
         println("bytes is null.")
         ("", e)
       }else {
+        /*
         println("bytes length in scala:" + e.length)
         println("bytes in scala:")
         println(new String(Hex.encodeHex(e)))
         (Base64.getEncoder.encodeToString(ByteBuffer.wrap(e, 0, 4).array()), e)
-        /*
-        val len = ByteBuffer.wrap(e, 0, 4).getInt
-        println("key len:" + len)
-        println()
-        (Base64.getEncoder.encodeToString(ByteBuffer.wrap(e, 4, len).array()), e)
         */
+        val len = ByteBuffer.wrap(e, 0, 4).getInt
+        println("key len in scala:" + len)
+        (Base64.getEncoder.encodeToString(ByteBuffer.wrap(e, 4, len).array()), e)
       }
     })
 
-    dataRDD.take(10)
+    // dataRDD.take(10)
 
     // Some(new EmptyRDD[MapWithStateRDDRecord[String, Array[Byte], Array[Byte]]](ssc.sparkContext))
-    Some(dataRDD.sparkContext.emptyRDD)
+    // Some(dataRDD.sparkContext.emptyRDD)
 
-    /*
     val timeoutThresholdTime = Some(validTime.milliseconds - timeoutIntervalInMillis)
 
-    Some(new CSharpMapWithStateRDD(
+    val mapWithStateRDD = new CSharpMapWithStateRDD(
       prevStateRDD,
       dataRDD,
       func,
       validTime,
       timeoutThresholdTime,
-      csharpWorkerExec))
-      */
+      csharpWorkerExec)
+
+    mapWithStateRDD.take(10)
+
+    Some(mapWithStateRDD)
   }
 }
 

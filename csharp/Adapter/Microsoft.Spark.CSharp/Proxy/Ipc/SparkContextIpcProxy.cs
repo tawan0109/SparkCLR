@@ -265,19 +265,19 @@ namespace Microsoft.Spark.CSharp.Proxy.Ipc
 
         public IRDDProxy CreateCSharpRdd(IRDDProxy prevJvmRddReference, byte[] command, Dictionary<string, string> environmentVariables, List<string> pythonIncludes, bool preservesPartitioning, List<Broadcast> broadcastVariables, List<byte[]> accumulator)
         {
-            Console.WriteLine("start to CreateCSharpRdd ");
+            //Console.WriteLine("start to CreateCSharpRdd ");
             var hashTableReference = SparkCLRIpcProxy.JvmBridge.CallConstructor("java.util.Hashtable", new object[] { });
-            Console.WriteLine("hashTableReference " + hashTableReference);
+            //Console.WriteLine("hashTableReference " + hashTableReference);
             var arrayListReference = SparkCLRIpcProxy.JvmBridge.CallConstructor("java.util.ArrayList", new object[] { });
-            Console.WriteLine("arrayListReference " + arrayListReference);
+            //Console.WriteLine("arrayListReference " + arrayListReference);
             // var jbroadcastVariables = GetJavaList<JvmObjectReference>(jvmBroadcastReferences);
             var jbroadcastVariables = SparkCLRIpcProxy.JvmBridge.CallConstructor("java.util.ArrayList", new object[] { });
-            Console.WriteLine("jbroadcastVariables " + jbroadcastVariables);
-            Console.WriteLine("prevJvmRddReference " + prevJvmRddReference);
-            Console.WriteLine("type(prevJvmRddReference)" + prevJvmRddReference.GetType());
-            Console.WriteLine("prevJvmRddReference.RDDIpcProxy " + prevJvmRddReference);
+            //Console.WriteLine("jbroadcastVariables " + jbroadcastVariables);
+            //Console.WriteLine("prevJvmRddReference " + prevJvmRddReference);
+            //Console.WriteLine("type(prevJvmRddReference)" + prevJvmRddReference.GetType());
+            //Console.WriteLine("prevJvmRddReference.RDDIpcProxy " + prevJvmRddReference);
             var rdd = new JvmObjectReference((string)SparkCLRIpcProxy.JvmBridge.CallNonStaticJavaMethod((prevJvmRddReference as RDDIpcProxy).JvmRddReference, "rdd"));
-            Console.WriteLine("rdd " + rdd);
+            //Console.WriteLine("rdd " + rdd);
             var csRdd = SparkCLRIpcProxy.JvmBridge.CallConstructor("org.apache.spark.api.csharp.CSharpRDD",
                 new object[]
                 {
