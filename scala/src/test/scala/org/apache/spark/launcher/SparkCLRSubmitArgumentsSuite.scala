@@ -427,11 +427,12 @@ class SparkCLRSubmitArgumentsSuite extends SparkCLRFunSuite with Matchers with T
     var key2 = new String(Hex.encodeHex(buffer2.array()))
     println(deltaMap.contains(key2))
   }
-
+/*
   test("Read csharp bytes") {
     val bytes = FileUtils.readFileToByteArray(new File("D:\\temp\\kv.dat"))
     val buffer = ByteBuffer.wrap(bytes)
     println(buffer.getInt)
     println(buffer.getInt)
   }
+  */
 }

@@ -97,11 +97,11 @@ namespace Microsoft.Spark.CSharp.Proxy.Ipc
             SparkCLRIpcProxy.JvmBridge.CallNonStaticJavaMethod(jvmStreamingContextReference, "checkpoint", new object[] { directory });
         }
 
-        public IDStreamProxy CreateCSharpDStream(IDStreamProxy jdstream, byte[] func, string serializationMode)
+        public IDStreamProxy CreateCSharpDStream(IDStreamProxy jdstream, byte[] func, string serializationMode, string serializationMode2)
         {
             var jvmDStreamReference =
                 SparkCLRIpcProxy.JvmBridge.CallConstructor("org.apache.spark.streaming.api.csharp.CSharpDStream",
-                    new object[] {(jdstream as DStreamIpcProxy).jvmDStreamReference, func, serializationMode});
+                    new object[] {(jdstream as DStreamIpcProxy).jvmDStreamReference, func, serializationMode, serializationMode2});
 
             var javaDStreamReference =
                 new JvmObjectReference(
@@ -249,6 +249,8 @@ namespace Microsoft.Spark.CSharp.Proxy.Ipc
                                 Console.WriteLine("func:" + func);
                                 string serializedMode = SerDe.ReadString(s);
                                 Console.WriteLine("serializedMode:" + serializedMode);
+                                string serializedMode2 = SerDe.ReadString(s);
+                                Console.WriteLine("serializedMode2:" + serializedMode2);
                                 RDD<dynamic> rdd = null;
                                 if (jrdds[0].Id != null)
                                 {
@@ -259,7 +261,9 @@ namespace Microsoft.Spark.CSharp.Proxy.Ipc
                                 if (func is Func<double, RDD<dynamic>, RDD<dynamic>>)
                                 {
                                     Console.WriteLine("func is Func<double, RDD<dynamic>, RDD<dynamic>>");
-                                    JvmObjectReference jrdd = ((((Func<double, RDD<dynamic>, RDD<dynamic>>)func)(time, rdd) as PipelinedRDD<dynamic>).RddProxy as RDDIpcProxy).JvmRddReference;
+                                    RDD<dynamic> rdd2 = ((Func<double, RDD<dynamic>, RDD<dynamic>>)func)(time, rdd) as PipelinedRDD<dynamic>;
+                                    rdd2.serializedMode = (SerializedMode)Enum.Parse(typeof(SerializedMode), serializedMode2);
+                                    JvmObjectReference jrdd = (rdd2.RddProxy as RDDIpcProxy).JvmRddReference;
                                     SerDe.Write(s, (byte)'j');
                                     SerDe.Write(s, jrdd.Id);
                                     Console.WriteLine("jrdd.Id: " + jrdd.Id);
@@ -267,10 +271,12 @@ namespace Microsoft.Spark.CSharp.Proxy.Ipc
                                 else if (func is Func<double, RDD<dynamic>, RDD<dynamic>, RDD<dynamic>>)
                                 {
                                     Console.WriteLine("func is Func<double, RDD<dynamic>, RDD<dynamic>, RDD<dynamic>>");
-                                    string serializedMode2 = SerDe.ReadString(s);
-                                    Console.WriteLine("serializedMode2:" + serializedMode2);
+                                    // string serializedMode2 = SerDe.ReadString(s);
+                                    // Console.WriteLine("serializedMode2:" + serializedMode2);
                                     RDD<dynamic> rdd2 = new RDD<dynamic>(new RDDIpcProxy(jrdds[1]), sparkContext, (SerializedMode)Enum.Parse(typeof(SerializedMode), serializedMode2));
-                                    JvmObjectReference jrdd = ((((Func<double, RDD<dynamic>, RDD<dynamic>, RDD<dynamic>>)func)(time, rdd, rdd2) as PipelinedRDD<dynamic>).RddProxy as RDDIpcProxy).JvmRddReference;
+                                    RDD<dynamic> rdd3 = ((Func<double, RDD<dynamic>, RDD<dynamic>, RDD<dynamic>>)func)(time, rdd, rdd2) as PipelinedRDD<dynamic>;
+                                    rdd3.serializedMode = (SerializedMode)Enum.Parse(typeof(SerializedMode), serializedMode2);
+                                    JvmObjectReference jrdd = (rdd3.RddProxy as RDDIpcProxy).JvmRddReference;
                                     SerDe.Write(s, (byte)'j');
                                     SerDe.Write(s, jrdd.Id);
                                     Console.WriteLine("jrdd.Id: " + jrdd.Id);
