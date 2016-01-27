@@ -3836,6 +3836,21 @@
             <param name="fromOffsets">Per-topic/partition Kafka offsets defining the (inclusive) starting point of the stream.</param>
             <returns>A DStream object</returns>
         </member>
+        <member name="T:Microsoft.Spark.CSharp.Streaming.MapWithStateDStream`4">
+            <summary>
+            
+            </summary>
+            <typeparam name="K"></typeparam>
+            <typeparam name="V"></typeparam>
+            <typeparam name="S"></typeparam>
+            <typeparam name="M"></typeparam>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Streaming.MapWithStateDStream`4.#ctor(Microsoft.Spark.CSharp.Streaming.StreamingContext,Microsoft.Spark.CSharp.Streaming.DStream{System.Collections.Generic.KeyValuePair{`0,`1}})">
+            <summary>
+            
+            </summary>
+            <param name="ssc"></param>
+        </member>
         <member name="T:Microsoft.Spark.CSharp.Streaming.PairDStreamFunctions">
             <summary>
             operations only available to KeyValuePair RDD
@@ -4054,6 +4069,20 @@
             <param name="updateFunc">State update function - (pid, IEnumerable[K, [newValues, oldState]]) => IEnumerable[K, newState]</param>
             <param name="numPartitions"></param>
             <returns></returns>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Streaming.PairDStreamFunctions.MapWithState``4(Microsoft.Spark.CSharp.Streaming.DStream{System.Collections.Generic.KeyValuePair{``0,``1}},System.Func{System.DateTime,``0,``1,Microsoft.Spark.CSharp.Streaming.State{``2},``3})">
+            <summary>
+            Return a [[MapWithStateDStream]] by applying a function to every key-value element of `this` stream, 
+            while maintaining some state data for each unique key. The mapping function and other specification (e.g. partitioners, timeouts, initial state data, etc.) of this 
+            transformation can be specified using [[StateSpec]] class. The state data is accessible in as a parameter of type [[State]] in the mapping function.
+            </summary>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Streaming.PairDStreamFunctions.MapWithState2``4(Microsoft.Spark.CSharp.Streaming.DStream{System.Collections.Generic.KeyValuePair{``0,``1}},System.Func{System.DateTime,``0,``1,Microsoft.Spark.CSharp.Streaming.State{``2},``3})">
+            <summary>
+            Return a [[MapWithStateDStream]] by applying a function to every key-value element of `this` stream, 
+            while maintaining some state data for each unique key. The mapping function and other specification (e.g. partitioners, timeouts, initial state data, etc.) of this 
+            transformation can be specified using [[StateSpec]] class. The state data is accessible in as a parameter of type [[State]] in the mapping function.
+            </summary>
         </member>
         <member name="T:Microsoft.Spark.CSharp.Streaming.CombineByKeyHelper`3">
             <summary>

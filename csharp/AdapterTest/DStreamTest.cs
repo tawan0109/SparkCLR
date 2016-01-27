@@ -4,6 +4,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Runtime.Serialization.Formatters.Binary;
 using AdapterTest.Mocks;
 using Microsoft.Spark.CSharp.Core;
 using Microsoft.Spark.CSharp.Streaming;
@@ -279,6 +281,47 @@ namespace AdapterTest
                     Assert.AreEqual(countByWord.Value, countByWord.Key == "The" || countByWord.Key == "dog" || countByWord.Key == "lazy" ? 24 : 23);
                 }
             });
+        }
+
+        [Test]
+        public void TestPair2Bytes()
+        {
+            var helper = new KeyValuePair2BytesHelper<string, int>();
+            var kv = new KeyValuePair<string, int>("word", 10);
+            var bytes = helper.Execute(kv);
+
+            File.WriteAllBytes(@"D:\temp\kv.dat", bytes);
+        }
+
+        [Test]
+        public void TestPair2Bytes2()
+        {
+            var bytes = BitConverter.GetBytes(28);
+
+            File.WriteAllBytes(@"D:\temp\kv2.dat", bytes);
+        }
+
+        [Test]
+        public void TestPair2Bytes3()
+        {
+            var bytes =
+                StringToByteArray(
+                    "0001000000ffffffff01000000000000000f010000005b000000020000001d0b73706d756a0500000001060000000000000001ffffffff0000000100000000360001000000ffffffff010000000000000004010000000c53797374656d2e496e74333201000000076d5f76616c756500089e0600000b0b");
+
+            var formatter = new BinaryFormatter();
+
+            dynamic dbytes = formatter.Deserialize(new MemoryStream(bytes));
+
+            var hex = BitConverter.ToString(dbytes).Replace("-", string.Empty);
+            Console.WriteLine(hex);
+        }
+
+        public static byte[] StringToByteArray(string hex)
+        {
+            return Enumerable.Range(0, hex.Length)
+                             .Where(x => x % 2 == 0)
+                             .Select(x => Convert.ToByte(hex.Substring(x, 2), 16))
+                             .ToArray();
         }
     }
 }

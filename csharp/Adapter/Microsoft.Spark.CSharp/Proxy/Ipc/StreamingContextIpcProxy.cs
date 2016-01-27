@@ -227,6 +227,7 @@ namespace Microsoft.Spark.CSharp.Proxy.Ipc
                         try
                         {
                             string cmd = SerDe.ReadString(s);
+                            Console.WriteLine("cmd:" + cmd);
                             if (cmd == "close")
                             {
                                 logger.LogDebug("receive close cmd from Scala side");
@@ -235,37 +236,48 @@ namespace Microsoft.Spark.CSharp.Proxy.Ipc
                             else if (cmd == "callback")
                             {
                                 int numRDDs = SerDe.ReadInt(s);
+                                Console.WriteLine("numRDDS:" + numRDDs);
                                 var jrdds = new List<JvmObjectReference>();
                                 for (int i = 0; i < numRDDs; i++)
                                 {
                                     jrdds.Add(new JvmObjectReference(SerDe.ReadObjectId(s)));
                                 }
                                 double time = SerDe.ReadDouble(s);
-
+                                Console.WriteLine("time:" + time);
                                 IFormatter formatter = new BinaryFormatter();
                                 object func = formatter.Deserialize(new MemoryStream(SerDe.ReadBytes(s)));
-
+                                Console.WriteLine("func:" + func);
                                 string serializedMode = SerDe.ReadString(s);
+                                Console.WriteLine("serializedMode:" + serializedMode);
                                 RDD<dynamic> rdd = null;
                                 if (jrdds[0].Id != null)
-                                    rdd = new RDD<dynamic>(new RDDIpcProxy(jrdds[0]), sparkContext, (SerializedMode)Enum.Parse(typeof(SerializedMode), serializedMode));
+                                {
+                                    rdd = new RDD<dynamic>(new RDDIpcProxy(jrdds[0]), sparkContext, (SerializedMode) Enum.Parse(typeof (SerializedMode), serializedMode));
+                                    Console.WriteLine("jrdds[0]:" + jrdds[0]);
+                                }
 
                                 if (func is Func<double, RDD<dynamic>, RDD<dynamic>>)
                                 {
+                                    Console.WriteLine("func is Func<double, RDD<dynamic>, RDD<dynamic>>");
                                     JvmObjectReference jrdd = ((((Func<double, RDD<dynamic>, RDD<dynamic>>)func)(time, rdd) as PipelinedRDD<dynamic>).RddProxy as RDDIpcProxy).JvmRddReference;
                                     SerDe.Write(s, (byte)'j');
                                     SerDe.Write(s, jrdd.Id);
+                                    Console.WriteLine("jrdd.Id: " + jrdd.Id);
                                 }
                                 else if (func is Func<double, RDD<dynamic>, RDD<dynamic>, RDD<dynamic>>)
                                 {
+                                    Console.WriteLine("func is Func<double, RDD<dynamic>, RDD<dynamic>, RDD<dynamic>>");
                                     string serializedMode2 = SerDe.ReadString(s);
+                                    Console.WriteLine("serializedMode2:" + serializedMode2);
                                     RDD<dynamic> rdd2 = new RDD<dynamic>(new RDDIpcProxy(jrdds[1]), sparkContext, (SerializedMode)Enum.Parse(typeof(SerializedMode), serializedMode2));
                                     JvmObjectReference jrdd = ((((Func<double, RDD<dynamic>, RDD<dynamic>, RDD<dynamic>>)func)(time, rdd, rdd2) as PipelinedRDD<dynamic>).RddProxy as RDDIpcProxy).JvmRddReference;
                                     SerDe.Write(s, (byte)'j');
                                     SerDe.Write(s, jrdd.Id);
+                                    Console.WriteLine("jrdd.Id: " + jrdd.Id);
                                 }
                                 else
                                 {
+                                    Console.WriteLine("Action<double, RDD<dynamic>>)func");
                                     ((Action<double, RDD<dynamic>>)func)(time, rdd);
                                     SerDe.Write(s, (byte)'n');
                                 }
@@ -273,6 +285,7 @@ namespace Microsoft.Spark.CSharp.Proxy.Ipc
                         }
                         catch (Exception e)
                         {
+                            Console.WriteLine(e);
                             //log exception only when callback socket is not shutdown explicitly
                             if (!callbackSocketShutdown)
                             {

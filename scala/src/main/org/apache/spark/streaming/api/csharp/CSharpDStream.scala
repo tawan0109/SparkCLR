@@ -78,6 +78,7 @@ object CSharpDStream {
       writeBytes(dos, cSharpfunc)
       serializationModeList.foreach(x => writeString(dos, x))
       dos.flush()
+      println("flush callback.")
       val result = Option(readObject(dis).asInstanceOf[JavaRDD[Array[Byte]]]).map(_.rdd)
       CSharpBackend.callbackSockets.offer(socket)
       result

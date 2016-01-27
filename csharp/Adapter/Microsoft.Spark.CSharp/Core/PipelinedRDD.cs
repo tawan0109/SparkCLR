@@ -27,6 +27,32 @@ namespace Microsoft.Spark.CSharp.Core
         internal CSharpWorkerFunc workerFunc;
         internal bool preservesPartitioning;
 
+        /*
+        internal RDD<U1> MapPartitionsWithIndex<U1>(Func<int, IEnumerable<U>, IEnumerable<U1>> newFunc, SerializedMode mode, bool preservesPartitioningParam = false)
+        {
+            if (IsPipelinable())
+            {
+                CSharpWorkerFunc newWorkerFunc = new CSharpWorkerFunc(
+                    new MapPartitionsWithIndexHelper<U, U1>(newFunc, workerFunc.Func).Execute, workerFunc.StackTrace);
+
+                var pipelinedRDD = new PipelinedRDD<U1>
+                {
+                    workerFunc = newWorkerFunc,
+                    preservesPartitioning = preservesPartitioning && preservesPartitioningParam,
+                    previousRddProxy = this.previousRddProxy,
+                    prevSerializedMode = this.prevSerializedMode,
+                    sparkContext = this.sparkContext,
+                    rddProxy = null,
+                    serializedMode = mode,
+                    partitioner = preservesPartitioning ? partitioner : null
+                };
+                return pipelinedRDD;
+            }
+
+            return base.MapPartitionsWithIndex(newFunc, preservesPartitioningParam);
+        }
+        */
+
         //TODO - give generic types a better id
         public override RDD<U1> MapPartitionsWithIndex<U1>(Func<int, IEnumerable<U>, IEnumerable<U1>> newFunc, bool preservesPartitioningParam = false)
         {

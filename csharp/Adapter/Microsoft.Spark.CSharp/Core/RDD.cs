@@ -29,6 +29,11 @@ namespace Microsoft.Spark.CSharp.Core
         internal bool bypassSerializer;
         internal int? partitioner;
 
+        public string Info()
+        {
+            return "serializedMode: " + serializedMode + ", bypassSerializer" + bypassSerializer;
+        }
+
         internal virtual IRDDProxy RddProxy
         {
             get
@@ -242,6 +247,25 @@ namespace Microsoft.Spark.CSharp.Core
             return pipelinedRDD;
         }
 
+        /*
+        internal virtual RDD<U> MapPartitionsWithIndex<U>(Func<int, IEnumerable<T>, IEnumerable<U>> f, SerializedMode mode, bool preservesPartitioningParam = false)
+        {
+            CSharpWorkerFunc csharpWorkerFunc = new CSharpWorkerFunc(new DynamicTypingWrapper<T, U>(f).Execute);
+            var pipelinedRDD = new PipelinedRDD<U>
+            {
+                workerFunc = csharpWorkerFunc,
+                preservesPartitioning = preservesPartitioningParam,
+                previousRddProxy = rddProxy,
+                prevSerializedMode = serializedMode,
+
+                sparkContext = sparkContext,
+                rddProxy = null,
+                serializedMode = mode,
+                partitioner = preservesPartitioningParam ? partitioner : null
+            };
+            return pipelinedRDD;
+        }     
+        */
         /// <summary>
         /// Return a new RDD containing only the elements that satisfy a predicate.
         /// 

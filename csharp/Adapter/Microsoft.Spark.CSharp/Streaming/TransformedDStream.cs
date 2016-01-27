@@ -29,10 +29,10 @@ namespace Microsoft.Spark.CSharp.Streaming
         internal Func<double, RDD<dynamic>, RDD<dynamic>> func;
         private Func<double, RDD<dynamic>, RDD<dynamic>> prevFunc;
 
-        internal void Init<T>(DStream<T> prev, Func<double, RDD<dynamic>, RDD<dynamic>> f)
+        internal void Init<T>(DStream<T> prev, Func<double, RDD<dynamic>, RDD<dynamic>> f, SerializedMode mode = SerializedMode.Byte)
         {
             streamingContext = prev.streamingContext;
-            serializedMode = SerializedMode.Byte;
+            serializedMode = mode;
             isCached = false;
             isCheckpointed = false;
             dstreamProxy = null;

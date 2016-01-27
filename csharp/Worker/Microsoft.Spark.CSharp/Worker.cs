@@ -117,7 +117,7 @@ namespace Microsoft.Spark.CSharp
                         }
                     }
 
-                    Accumulator.accumulatorRegistry.Clear();
+                    // Accumulator.accumulatorRegistry.Clear();
 
                     int lengthOfCommandByteArray = SerDe.ReadInt(s);
                     logger.LogDebug("command length: " + lengthOfCommandByteArray);
@@ -248,6 +248,8 @@ namespace Microsoft.Spark.CSharp
                     // Mark the beginning of the accumulators section of the output
                     SerDe.Write(s, (int)SpecialLengths.END_OF_DATA_SECTION);
 
+                    SerDe.Write(s, 0);
+                    /*
                     SerDe.Write(s, Accumulator.accumulatorRegistry.Count);
                     foreach (var item in Accumulator.accumulatorRegistry)
                     {
@@ -259,6 +261,7 @@ namespace Microsoft.Spark.CSharp
                         SerDe.Write(s, buffer.Length);
                         SerDe.Write(s, buffer);
                     }
+                    */
 
                     int end = SerDe.ReadInt(s);
 

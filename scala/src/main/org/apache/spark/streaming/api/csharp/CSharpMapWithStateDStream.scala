@@ -2,6 +2,8 @@ package org.apache.spark.streaming.api.csharp
 
 import java.nio.ByteBuffer
 
+import org.apache.commons.codec.binary.Hex
+import org.apache.commons.lang.StringUtils
 import org.apache.spark.api.python.{PythonBroadcast, PythonRunner}
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.streaming.api.java.JavaDStream
@@ -71,7 +73,7 @@ private[streaming] class InternalCSharpMapWithStateDStream(
 
   override def slideDuration: Duration = parent.slideDuration
 
-  override def compute(validTime: Time): Option[CSharpMapWithStateRDD] = {
+  override def compute(validTime: Time): Option[RDD[MapWithStateRDDRecord[String, Array[Byte], Array[Byte]]]] = {
     // Get the previous state or create a new empty state RDD
     val prevStateRDD = getOrCompute(validTime - slideDuration) match {
       case Some(rdd) => if (rdd.partitioner != Some(partitioner)) {
@@ -86,10 +88,30 @@ private[streaming] class InternalCSharpMapWithStateDStream(
 
     val dataRDD = parent.getOrCompute(validTime).getOrElse {
       context.sparkContext.emptyRDD[Array[Byte]]
-    }.map(e => (Base64.getEncoder.encodeToString(ByteBuffer.wrap(e, 4, ByteBuffer.wrap(e, 0, 4).getInt).array()), e))
+    }.map(e => {
+      if(e == null){
+        println("bytes is null.")
+        ("", e)
+      }else {
+        println("bytes length in scala:" + e.length)
+        println("bytes in scala:")
+        println(new String(Hex.encodeHex(e)))
+        (Base64.getEncoder.encodeToString(ByteBuffer.wrap(e, 0, 4).array()), e)
+        /*
+        val len = ByteBuffer.wrap(e, 0, 4).getInt
+        println("key len:" + len)
+        println()
+        (Base64.getEncoder.encodeToString(ByteBuffer.wrap(e, 4, len).array()), e)
+        */
+      }
+    })
 
-    println("---------------dataRDD.count():" + dataRDD.count())
+    dataRDD.take(10)
 
+    // Some(new EmptyRDD[MapWithStateRDDRecord[String, Array[Byte], Array[Byte]]](ssc.sparkContext))
+    Some(dataRDD.sparkContext.emptyRDD)
+
+    /*
     val timeoutThresholdTime = Some(validTime.milliseconds - timeoutIntervalInMillis)
 
     Some(new CSharpMapWithStateRDD(
@@ -99,6 +121,7 @@ private[streaming] class InternalCSharpMapWithStateDStream(
       validTime,
       timeoutThresholdTime,
       csharpWorkerExec))
+      */
   }
 }
 

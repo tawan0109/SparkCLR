@@ -393,17 +393,29 @@ namespace Microsoft.Spark.CSharp.Streaming
             DStream<byte[]> bDStream = self.Map(new KeyValuePair2BytesHelper<K, V>().Execute);
             bDStream.serializedMode = SerializedMode.None;
 
-            Func<int, IEnumerable<byte[]>, IEnumerable<byte[]>> func = new MapWithStateHelper<K, V, S, M>(mapWithStateFunc).Execute;
+            Func<int, IEnumerable<dynamic>, IEnumerable<dynamic>> func = new MapWithStateHelper<K, V, S, M>(mapWithStateFunc).Execute;
 
-            var formatter = new BinaryFormatter();
-            var stream = new MemoryStream();
-            formatter.Serialize(stream, func);
+            var command = SparkContext.BuildCommand(new CSharpWorkerFunc(func), SerializedMode.None, SerializedMode.None);
             return 
                 new DStream<byte[]>(
                 SparkCLREnvironment.SparkCLRProxy.StreamingContextProxy.CreateCSharpMapStateDStream(
-                bDStream.DStreamProxy, stream.ToArray(), 1000000L),
-                self.streamingContext).
+                bDStream.DStreamProxy, command, 1000000L),
+                self.streamingContext, SerializedMode.None).
                 Map(new DeserializeHelper<M>().Execute);
+        }
+
+        /// <summary>
+        /// Return a [[MapWithStateDStream]] by applying a function to every key-value element of `this` stream, 
+        /// while maintaining some state data for each unique key. The mapping function and other specification (e.g. partitioners, timeouts, initial state data, etc.) of this 
+        /// transformation can be specified using [[StateSpec]] class. The state data is accessible in as a parameter of type [[State]] in the mapping function.
+        /// </summary>
+        public static DStream<byte[]> MapWithState2<K, V, S, M>(this DStream<KeyValuePair<K, V>> self, Func<DateTime, K, V, State<S>, M> mapWithStateFunc)
+        {
+            //DStream<byte[]> bDStream = self.Map(new KeyValuePair2BytesHelper<K, V>().Execute, SerializedMode.None);
+            DStream<byte[]> bDStream = self.Map(new KeyValuePair2BytesHelper<K, V>().Execute);
+            bDStream.serializedMode = SerializedMode.None;
+
+            return bDStream;
         }
     }
 
@@ -424,6 +436,7 @@ namespace Microsoft.Spark.CSharp.Streaming
         }
     }
 
+
     [Serializable]
     internal class KeyValuePair2BytesHelper<K, V>
     {
@@ -438,15 +451,25 @@ namespace Microsoft.Spark.CSharp.Streaming
             }
             var ms = new MemoryStream();
             formatter.Serialize(ms, pair.Key);
+            var keyBytes = ms.ToArray();
 
             var buffer = new MemoryStream();
-            SerDe.Write(buffer, ms.ToArray());
+            SerDe.Write(buffer, keyBytes.Length);
+            Array.Reverse(keyBytes);
+            buffer.Write(keyBytes, 0, keyBytes.Length);
            
             var ms2 = new MemoryStream();
             formatter.Serialize(ms2, pair.Value);
-            SerDe.Write(buffer, ms2.ToArray());
+            var valueBytes = ms2.ToArray();
 
-            return buffer.ToArray();
+            SerDe.Write(buffer, valueBytes.Length);
+            buffer.Write(valueBytes, 0, valueBytes.Length);
+  
+            var bytes =  buffer.ToArray();
+            Console.WriteLine("Bytes length in csharp:" + bytes.Length);
+            Console.WriteLine("Bytes:");
+            Console.WriteLine(BitConverter.ToString(bytes).Replace("-", string.Empty));
+            return bytes;
         }
     }
 
@@ -460,7 +483,7 @@ namespace Microsoft.Spark.CSharp.Streaming
             func = f;
         }
 
-        internal IEnumerable<byte[]> Execute(int index, IEnumerable<byte[]> input)
+        internal IEnumerable<dynamic> Execute(int index, IEnumerable<dynamic> input)
         {
             return input.Select(e => Process(e));
         }
@@ -502,7 +525,7 @@ namespace Microsoft.Spark.CSharp.Streaming
                 SerDe.Write(outputStream, 2);
                 WriteObject(formatter, stream, stateWrapper.state);
             }
-            
+
             return outputStream.ToArray();
         }
 

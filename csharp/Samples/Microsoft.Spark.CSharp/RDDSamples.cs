@@ -555,6 +555,19 @@ namespace Microsoft.Spark.CSharp.Samples
 
         }
 
+        [Sample]
+        internal static void RDDWordCountSample2()
+        {
+            var lines = SparkCLRSamples.SparkContext.TextFile(SparkCLRSamples.Configuration.GetInputDataPath("words.txt"), 1);
+
+            var wordCounts = lines.Map(line => BitConverter.GetBytes(1));
+
+            Console.WriteLine("*** Printing words and their counts ***");
+            Console.WriteLine(wordCounts.Count());
+            // wordCounts.Foreach(e => Console.WriteLine(BitConverter.ToString(e).Replace("-", string.Empty)));
+
+        }
+
         /// <summary>
         /// Performs a join of 2 RDDs and run reduction
         /// </summary>

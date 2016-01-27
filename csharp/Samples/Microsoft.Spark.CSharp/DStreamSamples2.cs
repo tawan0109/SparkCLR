@@ -3,18 +3,21 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Runtime.Serialization;
+using System.Runtime.Serialization.Formatters.Binary;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Spark.CSharp.Core;
-
-using Microsoft.Spark.CSharp.Streaming;
 using Microsoft.Spark.CSharp.Samples;
+using Microsoft.Spark.CSharp.Streaming;
+using StreamingContext = Microsoft.Spark.CSharp.Streaming.StreamingContext;
 
 namespace Microsoft.Spark.CSharp
 {
-    class DStreamSamples
+    internal class DStreamSamples2
     {
         private static int count;
         private static bool stopFileServer;
@@ -48,8 +51,28 @@ namespace Microsoft.Spark.CSharp
             });
         }
 
+
+        [Serializable]
+        internal class SerializeHelper<M>
+        {
+            [NonSerialized]
+            private IFormatter formatter = new BinaryFormatter();
+
+            internal byte[] Execute(M v)
+            {
+                if (formatter == null)
+                {
+                    formatter = new BinaryFormatter();
+                }
+
+                var ms = new MemoryStream();
+                formatter.Serialize(ms, v);
+                return ms.ToArray();
+            }
+        }
+
         [Sample("experimental")]
-        internal static void DStreamTextFileSamples()
+        internal static void DStreamMapWithStateSamples()
         {
             string directory = SparkCLRSamples.Configuration.SampleDataLocation;
             string checkpointPath = Path.Combine(directory, "checkpoint");
@@ -59,18 +82,16 @@ namespace Microsoft.Spark.CSharp
                 {
                     SparkContext sc = SparkCLRSamples.SparkContext;
                     StreamingContext context = new StreamingContext(sc, 30000);
-                    //context.Checkpoint(checkpointPath);
+                    // context.Checkpoint(checkpointPath);
 
                     var lines = context.TextFileStream(Path.Combine(directory, "test"));
-                    var words = lines.FlatMap(l => l.Split(' '));
-                    var pairs = words.Map(w => new KeyValuePair<string, int>(w, 1));
+                    var pairs = lines.Map(w => new KeyValuePair<string, int>(w, 1));
+                    // var state = lines.Map(new SerializeHelper<string>().Execute);
+                    /*
+                    var state = pairs.Map(kv => BitConverter.GetBytes(1));
+                     */
 
-                    // since operations like ReduceByKey, Join and UpdateStateByKey are
-                    // separate dstream transformations defined in CSharpDStream.scala
-                    // an extra CSharpRDD is introduced in between these operations
-                    var wordCounts = pairs.ReduceByKey((x, y) => x + y);
-                    // var join = wordCounts.Join(wordCounts, 2);
-                    var state = wordCounts.MapWithState<string, int, int, int>(
+                    var state = pairs.MapWithState<string, int, int, int>(
                         (batchTime, word, v, s) =>
                         {
                             var total = 0;
@@ -86,12 +107,15 @@ namespace Microsoft.Spark.CSharp
                             s.Update(total);
                             return total;
                         });
+                    
                    // var state = join.UpdateStateByKey<string, Tuple<int, int>, int>((vs, s) => vs.Sum(x => x.Item1 + x.Item2) + s);
                     state.ForeachRDD((time, rdd) =>
                     {
                         // there's chance rdd.Take conflicts with ssc.Stop
                         if (stopFileServer)
                             return;
+
+                        Console.WriteLine(rdd.Info());
 
                         object[] taken = rdd.Take(10);
                         Console.WriteLine("-------------------------------------------");
