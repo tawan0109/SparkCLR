@@ -455,7 +455,6 @@ namespace Microsoft.Spark.CSharp.Streaming
 
             var buffer = new MemoryStream();
             SerDe.Write(buffer, keyBytes.Length);
-            Array.Reverse(keyBytes);
             buffer.Write(keyBytes, 0, keyBytes.Length);
            
             var ms2 = new MemoryStream();
@@ -466,8 +465,8 @@ namespace Microsoft.Spark.CSharp.Streaming
             buffer.Write(valueBytes, 0, valueBytes.Length);
   
             var bytes =  buffer.ToArray();
-            Console.WriteLine("Bytes length in csharp:" + bytes.Length);
-            Console.WriteLine("Bytes:");
+            //Console.WriteLine("Bytes length in csharp:" + bytes.Length);
+            //Console.WriteLine("Bytes:");
             Console.WriteLine(BitConverter.ToString(bytes).Replace("-", string.Empty));
             return bytes;
         }
@@ -518,12 +517,12 @@ namespace Microsoft.Spark.CSharp.Streaming
             else if(stateWrapper.updated)
             {
                 SerDe.Write(outputStream, 1);
-                WriteObject(formatter, stream, stateWrapper.state);
+                WriteObject(formatter, outputStream, stateWrapper.state);
             }
             else if (stateWrapper.defined)
             {
                 SerDe.Write(outputStream, 2);
-                WriteObject(formatter, stream, stateWrapper.state);
+                WriteObject(formatter, outputStream, stateWrapper.state);
             }
 
             return outputStream.ToArray();
@@ -549,7 +548,7 @@ namespace Microsoft.Spark.CSharp.Streaming
             if (len == 0)
             {
                 bytes = new byte[0];
-                return null;
+                return default(S);
             }
 
             bytes = SerDe.ReadBytes(stream, len);

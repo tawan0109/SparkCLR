@@ -209,7 +209,7 @@ private[spark] class CSharpMapWithStateRDD (
         valueLen match {
           case 0 => None
           case _ => {
-            val retBytes = Some(ByteBuffer.wrap(bytes, offset, buffer.getInt).array())
+            val retBytes = Some(ByteBuffer.wrap(bytes, offset, valueLen).array())
             buffer.position(buffer.position() + valueLen)
             retBytes
           }
@@ -272,13 +272,19 @@ private[streaming] class MapWithStateDataIterator(
     val (key, pairBytes) = dataIterator.next()
     println("Finish to read next element in dataIterator.")
     stateMap.get(key) match {
-      case Some(stateBytes) =>
-        pairBytes ++ ByteBuffer.allocate(4).putInt(stateBytes.length).array() ++ stateBytes ++
+      case Some(stateBytes) => {
+        val ret = pairBytes ++ ByteBuffer.allocate(4).putInt(stateBytes.length).array() ++ stateBytes ++
           ByteBuffer.allocate(8).putLong(batchTime.milliseconds).array()
+        println(new String(Hex.encodeHex(ret)))
+        ret
+      }
 
-      case None =>
-        pairBytes ++ ByteBuffer.allocate(4).putInt(0).array() ++
+      case None => {
+        val ret = pairBytes ++ ByteBuffer.allocate(4).putInt(0).array() ++
           ByteBuffer.allocate(8).putLong(batchTime.milliseconds).array()
+        println(new String(Hex.encodeHex(ret)))
+        ret
+      }
     }
   }
 }

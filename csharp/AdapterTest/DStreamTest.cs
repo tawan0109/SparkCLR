@@ -316,6 +316,19 @@ namespace AdapterTest
             Console.WriteLine(hex);
         }
 
+        [Test]
+        public void TestMapWithStateHelper()
+        {
+            var bytes =
+                StringToByteArray(
+                    "000000240b797a616c20676f64206568540c00000001060000000000000001ffffffff0000000100000000360001000000ffffffff010000000000000004010000000c53797374656d2e496e74333201000000076d5f76616c75650008010000000b0000000000000152873da470");
+
+            var helper = new MapWithStateHelper<string, int, int, int>((t, k, v, s) => v);
+
+            var output = helper.Process(bytes);
+            Console.WriteLine(output);
+        }
+
         public static byte[] StringToByteArray(string hex)
         {
             return Enumerable.Range(0, hex.Length)
@@ -323,5 +336,7 @@ namespace AdapterTest
                              .Select(x => Convert.ToByte(hex.Substring(x, 2), 16))
                              .ToArray();
         }
+
+
     }
 }
