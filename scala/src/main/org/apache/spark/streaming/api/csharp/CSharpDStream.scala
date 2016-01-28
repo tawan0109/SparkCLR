@@ -52,6 +52,9 @@ object CSharpDStream {
    */
   def callForeachRDD(jdstream: JavaDStream[Array[Byte]], cSharpFunc: Array[Byte],
                      serializationMode: String) {
+    println("callForeachRDD")
+    println("jdstream:" + jdstream)
+    println("serializationMode:" + serializationMode)
     val func = (rdd: RDD[_], time: Time) => {
       val res = callCSharpTransform(List(Some(rdd)), time, cSharpFunc, List(serializationMode))
     }
@@ -124,6 +127,7 @@ class CSharpDStream(
   override def slideDuration: Duration = parent.slideDuration
 
   override def compute(validTime: Time): Option[RDD[Array[Byte]]] = {
+    println("[CSharpDStream] Start to compute.")
     val rdd = parent.compute(validTime)
     if (rdd.isDefined) {
       CSharpDStream.callCSharpTransform(List(rdd), validTime, cSharpFunc, List(serializationMode, serializationMode2))

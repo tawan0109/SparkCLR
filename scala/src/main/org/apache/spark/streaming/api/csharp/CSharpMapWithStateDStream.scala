@@ -43,11 +43,14 @@ private[streaming] class CSharpMapWithStateDStream(
   val asJavaDStream: JavaDStream[Array[Byte]] = JavaDStream.fromDStream(this)
 
   override def compute(validTime: Time): Option[RDD[Array[Byte]]] = {
-    internalStream.getOrCompute(validTime).map {
+    println("[CSharpMapWithStateDStream] Start to compute")
+    val rdd = internalStream.getOrCompute(validTime).map {
       _.flatMap[Array[Byte]] {
         _.mappedData
       }
     }
+    println("[CSharpMapWithStateDStream] rdd.isDefined: " + rdd.isDefined)
+    rdd
   }
 }
 
@@ -74,6 +77,7 @@ private[streaming] class InternalCSharpMapWithStateDStream(
   override def slideDuration: Duration = parent.slideDuration
 
   override def compute(validTime: Time): Option[RDD[MapWithStateRDDRecord[String, Array[Byte], Array[Byte]]]] = {
+    println("[InternalCSharpMapWithStateDStream] Start to compute")
     // Get the previous state or create a new empty state RDD
     val prevStateRDD = getOrCompute(validTime - slideDuration) match {
       case Some(rdd) => if (rdd.partitioner != Some(partitioner)) {
@@ -93,22 +97,10 @@ private[streaming] class InternalCSharpMapWithStateDStream(
         println("bytes is null.")
         ("", e)
       }else {
-        /*
-        println("bytes length in scala:" + e.length)
-        println("bytes in scala:")
-        println(new String(Hex.encodeHex(e)))
-        (Base64.getEncoder.encodeToString(ByteBuffer.wrap(e, 0, 4).array()), e)
-        */
         val len = ByteBuffer.wrap(e, 0, 4).getInt
-        println("key len in scala:" + len)
         (Base64.getEncoder.encodeToString(ByteBuffer.wrap(e, 4, len).array()), e)
       }
     })
-
-    // dataRDD.take(10)
-
-    // Some(new EmptyRDD[MapWithStateRDDRecord[String, Array[Byte], Array[Byte]]](ssc.sparkContext))
-    // Some(dataRDD.sparkContext.emptyRDD)
 
     val timeoutThresholdTime = Some(validTime.milliseconds - timeoutIntervalInMillis)
 
@@ -120,7 +112,7 @@ private[streaming] class InternalCSharpMapWithStateDStream(
       timeoutThresholdTime,
       csharpWorkerExec)
 
-    mapWithStateRDD.take(10)
+    // mapWithStateRDD.take(10)
 
     Some(mapWithStateRDD)
   }
@@ -159,7 +151,7 @@ private[spark] class CSharpMapWithStateRDD (
       context: TaskContext):
           Iterator[MapWithStateRDDRecord[String, Array[Byte], Array[Byte]]] = {
 
-    println("Start to compute for CSharpMapWithStateRDD.")
+    println("[CSharpMapWithStateRDD] Start to compute.")
     val stateRDDPartition = partition.asInstanceOf[CSharpMapWithStateRDDPartition]
     val prevStateRDDIterator = prevStateRDD.iterator(
       stateRDDPartition.previousSessionRDDPartition, context)
@@ -171,60 +163,65 @@ private[spark] class CSharpMapWithStateRDD (
     val newStateMap = prevRecord.map { _.stateMap.copy() }. getOrElse { new EmptyStateMap[String, Array[Byte]]() }
     val mappedData = new ArrayBuffer[Array[Byte]]
 
-    val runner = new PythonRunner(
-      command,
-      new java.util.HashMap[String, String](),
-      new java.util.ArrayList[String](),
-      csharpWorkerExec,
-      "",
-      new JArrayList[Broadcast[PythonBroadcast]](),
-      null,
-      bufferSize,
-      reuse_worker)
+    if(command.length > 0) {
+      val runner = new PythonRunner(
+        command,
+        new java.util.HashMap[String, String](),
+        new java.util.ArrayList[String](),
+        csharpWorkerExec,
+        "Vmapwithstate",
+        new JArrayList[Broadcast[PythonBroadcast]](),
+        null,
+        bufferSize,
+        reuse_worker)
 
-    def processResult(bytes: Array[Byte]): Unit = {
-      println("Start to process result.")
-      val buffer = ByteBuffer.wrap(bytes)
-      // read key
-      val keyLen = buffer.getInt
-      val key = Base64.getEncoder().encodeToString(ByteBuffer.wrap(bytes, 4, keyLen).array())
-      buffer.position(buffer.position() + keyLen)
+      def processResult(bytes: Array[Byte]): Unit = {
+        // println("Start to process result.")
+        val buffer = ByteBuffer.wrap(bytes)
+        // read key
+        val keyLen = buffer.getInt
+        val key = Base64.getEncoder().encodeToString(ByteBuffer.wrap(bytes, 4, keyLen).array())
+        buffer.position(buffer.position() + keyLen)
 
-      // read value
-      mappedData ++= readBytes(buffer)
+        // read value
+        mappedData ++= readBytes(buffer)
 
-      // read state status, 1 - updated, 2 - defined, 3 - removed
-      buffer.getInt match {
-        case 3 => newStateMap.remove(key)
-        case _ => {
-          val state = readBytes(buffer).get
-          newStateMap.put(key, state, batchTime.milliseconds)
-        }
-      }
-
-      def readBytes(buffer: ByteBuffer): Option[Array[Byte]] = {
-        val offset = buffer.position()
-        val valueLen = buffer.getInt
-
-        valueLen match {
-          case 0 => None
+        // read state status, 1 - updated, 2 - defined, 3 - removed
+        buffer.getInt match {
+          case 3 => newStateMap.remove(key)
           case _ => {
-            val retBytes = Some(ByteBuffer.wrap(bytes, offset, valueLen).array())
-            buffer.position(buffer.position() + valueLen)
-            retBytes
+            val state = readBytes(buffer).get
+            newStateMap.put(key, state, batchTime.milliseconds)
+          }
+        }
+
+        def readBytes(buffer: ByteBuffer): Option[Array[Byte]] = {
+          val offset = buffer.position()
+          val valueLen = buffer.getInt
+
+          valueLen match {
+            case 0 => None
+            case _ => {
+              val retBytes = Some(ByteBuffer.wrap(bytes, offset, valueLen).array())
+              buffer.position(buffer.position() + valueLen)
+              retBytes
+            }
           }
         }
       }
-    }
 
-    println("Start python runner.")
-    runner.compute(new MapWithStateDataIterator(dataIterator, newStateMap, batchTime), partition.index, context).foreach(processResult(_))
-    if (timeoutThresholdTime.isDefined) {
-      newStateMap.getByTime(timeoutThresholdTime.get).foreach { case (key, state, _) =>
-        // TODO apply command to these timeout keys
-        newStateMap.remove(key)
+      // println("Start python runner.")
+      runner.compute(new MapWithStateDataIterator(dataIterator, newStateMap, batchTime), partition.index, context).foreach(processResult(_))
+      if (timeoutThresholdTime.isDefined) {
+        newStateMap.getByTime(timeoutThresholdTime.get).foreach { case (key, state, _) =>
+          // TODO apply command to these timeout keys
+          newStateMap.remove(key)
+        }
       }
     }
+
+    println("[CSharpMapWithStateRDD] mappedData.length:" + mappedData.length)
+    println("[CSharpMapWithStateRDD] newStateMap.length:" + newStateMap.getAll().length)
 
     Iterator(MapWithStateRDDRecord(newStateMap, mappedData))
   }
@@ -254,7 +251,6 @@ private [streaming] object CSharpMapWithStateRDD {
 
     val emptyDataRDD = pairRDD.sparkContext.emptyRDD[(String, Array[Byte])].partitionBy(partitioner)
 
-    // FIXME: command should not be a zero-length array
     new CSharpMapWithStateRDD(stateRDD, emptyDataRDD, new Array[Byte](0), updateTime, None, csharpWorkerExec)
   }
 }
@@ -268,23 +264,17 @@ private[streaming] class MapWithStateDataIterator(
   def hasNext = dataIterator.hasNext
 
   def next = {
-    println("Start to read next element in dataIterator.")
+    // println("Start to read next element in dataIterator.")
     val (key, pairBytes) = dataIterator.next()
-    println("Finish to read next element in dataIterator.")
+    // println("Finish to read next element in dataIterator.")
     stateMap.get(key) match {
-      case Some(stateBytes) => {
-        val ret = pairBytes ++ ByteBuffer.allocate(4).putInt(stateBytes.length).array() ++ stateBytes ++
+      case Some(stateBytes) =>
+        pairBytes ++ ByteBuffer.allocate(4).putInt(stateBytes.length).array() ++ stateBytes ++
           ByteBuffer.allocate(8).putLong(batchTime.milliseconds).array()
-        println(new String(Hex.encodeHex(ret)))
-        ret
-      }
 
-      case None => {
-        val ret = pairBytes ++ ByteBuffer.allocate(4).putInt(0).array() ++
+      case None =>
+        pairBytes ++ ByteBuffer.allocate(4).putInt(0).array() ++
           ByteBuffer.allocate(8).putLong(batchTime.milliseconds).array()
-        println(new String(Hex.encodeHex(ret)))
-        ret
-      }
     }
   }
 }
