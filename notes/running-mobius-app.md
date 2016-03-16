@@ -63,7 +63,7 @@ scripts\sparkclr-submit.cmd ^
     --deploy-mode cluster ^
     --master <spark://host:port> ^
     --remote-sparkclr-jar hdfs://path/to/spark-clr-jar/spark-clr_2.10-1.5.200.jar ^
-    --exe Pi.exe ^
+    --exe SparkClrPi.exe ^
     hdfs://path/to/pi/pi.zip ^
     spark.local.dir <full-path to temp directory on any spark worker>
 ````
