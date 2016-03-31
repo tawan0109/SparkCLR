@@ -50,10 +50,45 @@
             overridden here
             </summary>
         </member>
-        <!-- Badly formed XML comment ignored for member "T:Microsoft.Spark.CSharp.Configuration.ConfigurationService.SparkCLRDebugConfiguration" -->
+        <member name="T:Microsoft.Spark.CSharp.Configuration.ConfigurationService.SparkCLRDebugConfiguration">
+            <summary>
+            Configuration mode for debug mode
+            This configuration exists only to make SparkCLR development and debugging easier
+            </summary>
+        </member>
         <member name="M:Microsoft.Spark.CSharp.Configuration.ConfigurationService.SparkCLRDebugConfiguration.GetCSharpWorkerExePath">
             <summary>
             The full path of the CSharp external backend worker process.
+            </summary>
+        </member>
+        <member name="T:Microsoft.Spark.CSharp.Configuration.RunMode">
+            <summary>
+            The running mode used by Configuration Service
+            </summary>
+        </member>
+        <member name="F:Microsoft.Spark.CSharp.Configuration.RunMode.UNKNOWN">
+            <summary>
+            Unknown running mode
+            </summary>
+        </member>
+        <member name="F:Microsoft.Spark.CSharp.Configuration.RunMode.DEBUG">
+            <summary>
+            Debug mode, not a Spark mode but exists for develop debugging purpose
+            </summary>
+        </member>
+        <member name="F:Microsoft.Spark.CSharp.Configuration.RunMode.LOCAL">
+            <summary>
+            Indicates service is running in local
+            </summary>
+        </member>
+        <member name="F:Microsoft.Spark.CSharp.Configuration.RunMode.CLUSTER">
+            <summary>
+            Indicates service is running in cluster
+            </summary>
+        </member>
+        <member name="F:Microsoft.Spark.CSharp.Configuration.RunMode.YARN">
+            <summary>
+            Indicates service is running in Yarn
             </summary>
         </member>
         <member name="T:Microsoft.Spark.CSharp.Core.Accumulator">
@@ -71,6 +106,30 @@
             
             </summary>
         </member>
+        <member name="F:Microsoft.Spark.CSharp.Core.Accumulator.accumulatorId">
+            <summary>
+            The identity of the accumulator 
+            </summary>
+        </member>
+        <member name="F:Microsoft.Spark.CSharp.Core.Accumulator.isDriver">
+            <summary>
+            Indicates whether the accumulator is on driver side.
+            When deserialized on worker side, isDriver is false by default.
+            </summary>
+        </member>
+        <member name="T:Microsoft.Spark.CSharp.Core.Accumulator`1">
+            <summary>
+            A generic version of <see cref="T:Microsoft.Spark.CSharp.Core.Accumulator"/> where the element type is specified by the driver program.
+            </summary>
+            <typeparam name="T">The type of element in the accumulator.</typeparam>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Core.Accumulator`1.#ctor(System.Int32,`0)">
+            <summary>
+            Initializes a new instance of the Accumulator class with a specified identity and a value.
+            </summary>
+            <param name="accumulatorId">The Identity of the accumulator</param>
+            <param name="value">The value of the accumulator</param>
+        </member>
         <member name="M:Microsoft.Spark.CSharp.Core.Accumulator`1.Add(`0)">
             <summary>
             Adds a term to this accumulator's value
@@ -85,6 +144,18 @@
             <param name="self"></param>
             <param name="term"></param>
             <returns></returns>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Core.Accumulator`1.ToString">
+            <summary>
+            Creates and returns a string representation of the current accumulator
+            </summary>
+            <returns>A string representation of the current accumulator</returns>
+        </member>
+        <member name="P:Microsoft.Spark.CSharp.Core.Accumulator`1.Value">
+            <summary>
+            Gets or sets the value of the accumulator; only usable in driver program
+            </summary>
+            <exception cref="T:System.ArgumentException"></exception>
         </member>
         <member name="T:Microsoft.Spark.CSharp.Core.AccumulatorParam`1">
             <summary>
@@ -131,6 +202,23 @@
             
             </summary>
         </member>
+        <member name="F:Microsoft.Spark.CSharp.Core.Broadcast.broadcastRegistry">
+            <summary>
+            A thread-safe static collection that is used to store registered broadcast objects.
+            </summary>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Core.Broadcast.#ctor(System.String)">
+            <summary>
+            Initializes a new instance of Broadcast class with a specified path.
+            </summary>
+            <param name="path">The path that to be set.</param>
+        </member>
+        <member name="T:Microsoft.Spark.CSharp.Core.Broadcast`1">
+            <summary>
+            A generic version of <see cref="T:Microsoft.Spark.CSharp.Core.Broadcast"/> where the element can be specified.
+            </summary>
+            <typeparam name="T">The type of element in Broadcast</typeparam>
+        </member>
         <member name="M:Microsoft.Spark.CSharp.Core.Broadcast`1.Unpersist(System.Boolean)">
             <summary>
             Delete cached copies of this broadcast on the executors.
@@ -149,6 +237,43 @@
             </summary>
             <typeparam name="T"></typeparam>
         </member>
+        <member name="M:Microsoft.Spark.CSharp.Core.Option`1.#ctor">
+            <summary>
+            Initialize a instance of Option class without any value.
+            </summary>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Core.Option`1.#ctor(`0)">
+            <summary>
+            Initializes a instance of Option class with a specific value. 
+            </summary>
+            <param name="value">The value to be associated with the new instance.</param>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Core.Option`1.GetValue">
+            <summary>
+            Returns the value of the option if Option.IsDefined is TRUE;
+            otherwise, throws an <see cref="T:System.ArgumentException"/>.
+            </summary>
+            <returns></returns>
+        </member>
+        <member name="P:Microsoft.Spark.CSharp.Core.Option`1.IsDefined">
+            <summary>
+            Indicates whether the option value is defined.
+            </summary>
+        </member>
+        <member name="T:Microsoft.Spark.CSharp.Core.Partitioner">
+            <summary>
+            An object that defines how the elements in a key-value pair RDD are partitioned by key.
+            Maps each key to a partition ID, from 0 to "numPartitions - 1".
+            </summary>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Core.Partitioner.#ctor(System.Int32,System.Func{System.Object,System.Int32})">
+            <summary>
+            Create a <seealso cref="T:Microsoft.Spark.CSharp.Core.Partitioner"/> instance.
+            </summary>
+            <param name="numPartitions">Number of partitions.</param>
+            <param name="partitionFunc">Defines how the elements in a key-value pair RDD are partitioned by key. Input of Func is key, output is partition index.
+            Warning: diffrent Func instances are considered as different partitions which will cause repartition.</param>
+        </member>
         <member name="T:Microsoft.Spark.CSharp.Core.RDDCollector">
             <summary>
             Used for collect operation on RDD
@@ -157,6 +282,11 @@
         <member name="T:Microsoft.Spark.CSharp.Core.IRDDCollector">
             <summary>
             Interface for collect operation on RDD
+            </summary>
+        </member>
+        <member name="T:Microsoft.Spark.CSharp.Core.DoubleRDDFunctions">
+            <summary>
+            Extra functions available on RDDs of Doubles through an implicit conversion. 
             </summary>
         </member>
         <member name="M:Microsoft.Spark.CSharp.Core.DoubleRDDFunctions.Sum(Microsoft.Spark.CSharp.Core.RDD{System.Double})">
@@ -271,31 +401,34 @@
             <param name="self"></param>
             <returns></returns>
         </member>
+        <member name="T:Microsoft.Spark.CSharp.Core.OrderedRDDFunctions">
+            <summary>
+            Extra functions available on RDDs of (key, value) pairs where the key is sortable through
+            a function to sort the key.
+            </summary>
+        </member>
         <member name="M:Microsoft.Spark.CSharp.Core.OrderedRDDFunctions.SortByKey``2(Microsoft.Spark.CSharp.Core.RDD{System.Collections.Generic.KeyValuePair{``0,``1}},System.Boolean,System.Nullable{System.Int32})">
             <summary>
-            Sort the RDD by key, so that each partition contains a sorted range of the elements. Calling
-            `collect` or `save` on the resulting RDD will return or output an ordered list of records
-            (in the `save` case, they will be written to multiple `part-X` files in the filesystem, in
-            order of the keys).
-            
-            >>> tmp = [('a', 1), ('b', 2), ('1', 3), ('d', 4), ('2', 5)]
-            >>> sc.parallelize(tmp).sortByKey().first()
-            ('1', 3)
-            >>> sc.parallelize(tmp).sortByKey(True, 1).collect()
-            [('1', 3), ('2', 5), ('a', 1), ('b', 2), ('d', 4)]
-            >>> sc.parallelize(tmp).sortByKey(True, 2).collect()
-            [('1', 3), ('2', 5), ('a', 1), ('b', 2), ('d', 4)]
-            >>> tmp2 = [('Mary', 1), ('had', 2), ('a', 3), ('little', 4), ('lamb', 5)]
-            >>> tmp2.extend([('whose', 6), ('fleece', 7), ('was', 8), ('white', 9)])
-            >>> sc.parallelize(tmp2).sortByKey(True, 3, keyfunc=lambda k: k.lower()).collect()
-            [('a', 3), ('fleece', 7), ('had', 2), ('lamb', 5),...('white', 9), ('whose', 6)]
-            
+            Sorts this RDD, which is assumed to consist of KeyValuePair pairs.
             </summary>
             <typeparam name="K"></typeparam>
             <typeparam name="V"></typeparam>
             <param name="self"></param>
             <param name="ascending"></param>
             <param name="numPartitions"></param>
+            <returns></returns>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Core.OrderedRDDFunctions.SortByKey``3(Microsoft.Spark.CSharp.Core.RDD{System.Collections.Generic.KeyValuePair{``0,``1}},System.Boolean,System.Nullable{System.Int32},System.Func{``0,``2})">
+            <summary>
+            Sorts this RDD, which is assumed to consist of KeyValuePairs. If key is type of string, case is sensitive.
+            </summary>
+            <typeparam name="K"></typeparam>
+            <typeparam name="V"></typeparam>
+            <typeparam name="U"></typeparam>
+            <param name="self"></param>
+            <param name="ascending"></param>
+            <param name="numPartitions">Number of partitions. Each partition of the sorted RDD contains a sorted range of the elements.</param>
+            <param name="keyFunc">RDD will sort by keyFunc(key) for every key in KeyValuePair. Must not be null.</param>
             <returns></returns>
         </member>
         <member name="M:Microsoft.Spark.CSharp.Core.OrderedRDDFunctions.repartitionAndSortWithinPartitions``2(Microsoft.Spark.CSharp.Core.RDD{System.Collections.Generic.KeyValuePair{``0,``1}},System.Nullable{System.Int32},System.Func{``0,System.Int32},System.Boolean)">
@@ -305,12 +438,6 @@
             
              This is more efficient than calling `repartition` and then sorting within each partition
              because it can push the sorting down into the shuffle machinery.
-             
-             >>> rdd = sc.parallelize([(0, 5), (3, 8), (2, 6), (0, 8), (3, 8), (1, 3)])
-             >>> rdd2 = rdd.repartitionAndSortWithinPartitions(2, lambda x: x % 2, 2)
-             >>> rdd2.glom().collect()
-             [[(0, 5), (0, 8), (2, 6)], [(1, 3), (3, 8), (3, 8)]]
-             
              </summary>
              <typeparam name="K"></typeparam>
              <typeparam name="V"></typeparam>
@@ -551,7 +678,7 @@
             <param name="numPartitions"></param>
             <returns></returns>
         </member>
-        <member name="M:Microsoft.Spark.CSharp.Core.PairRDDFunctions.PartitionBy``2(Microsoft.Spark.CSharp.Core.RDD{System.Collections.Generic.KeyValuePair{``0,``1}},System.Int32)">
+        <member name="M:Microsoft.Spark.CSharp.Core.PairRDDFunctions.PartitionBy``2(Microsoft.Spark.CSharp.Core.RDD{System.Collections.Generic.KeyValuePair{``0,``1}},System.Int32,System.Func{System.Object,System.Int32})">
             <summary>
             Return a copy of the RDD partitioned using the specified partitioner.
             
@@ -559,6 +686,7 @@
             </summary>
             <param name="self"></param>
             <param name="numPartitions"></param>
+            <param name="partitionFunc"></param>
             <returns></returns>
         </member>
         <member name="M:Microsoft.Spark.CSharp.Core.PairRDDFunctions.CombineByKey``3(Microsoft.Spark.CSharp.Core.RDD{System.Collections.Generic.KeyValuePair{``0,``1}},System.Func{``2},System.Func{``2,``1,``2},System.Func{``2,``2,``2},System.Int32)">
@@ -2363,6 +2491,15 @@
             calling Spark jvm side API in JavaStreamingContext.scala, StreamingContext.scala or external KafkaUtils.scala
             </summary>
         </member>
+        <member name="M:Microsoft.Spark.CSharp.Proxy.Ipc.SparkContextIpcProxy.CreatePairwiseRDD(Microsoft.Spark.CSharp.Proxy.IRDDProxy,System.Int32,System.Int64)">
+            <summary>
+            Create a PairwiseRDD.
+            </summary>
+            <param name="jvmReferenceOfByteArrayRdd"></param>
+            <param name="numPartitions"></param>
+            <param name="partitionFuncId">Global unique id of partitioner which is used for comparison PythonPartitioners in JVM.</param>
+            <returns></returns>
+        </member>
         <member name="T:Microsoft.Spark.CSharp.Services.DefaultLoggerService">
             <summary>
             This logger service will be used if the C# driver app did not configure a logger.
@@ -3318,7 +3455,6 @@
         <member name="T:Microsoft.Spark.CSharp.Sql.RowConstructor">
             <summary>
             Used by Unpickler to unpickle pickled objects. It is also used to construct a Row (C# representation of pickled objects).
-            Note this implementation is not ThreadSafe. Collect or RDD conversion where unpickling is done is not expected to be multithreaded.
             </summary>
         </member>
         <member name="F:Microsoft.Spark.CSharp.Sql.RowConstructor.currentSchema">
@@ -4066,6 +4202,85 @@
             </param>
             <returns>A DStream object</returns>
         </member>
+        <member name="T:Microsoft.Spark.CSharp.Streaming.MapWithStateDStream`4">
+            <summary>
+            DStream representing the stream of data generated by `mapWithState` operation on a pair DStream.
+            Additionally, it also gives access to the stream of state snapshots, that is, the state data of all keys after a batch has updated them.
+            </summary>
+            <typeparam name="K">Type of the key</typeparam>
+            <typeparam name="V">Type of the value</typeparam>
+            <typeparam name="S">Type of the state data</typeparam>
+            <typeparam name="M">Type of the mapped data</typeparam>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Streaming.MapWithStateDStream`4.StateSnapshots">
+            <summary>
+            Return a pair DStream where each RDD is the snapshot of the state of all the keys.
+            </summary>
+        </member>
+        <member name="T:Microsoft.Spark.CSharp.Streaming.KeyedState`1">
+            <summary>
+            Class to hold a state instance and the timestamp when the state is updated or created.
+            No need to explicitly make this class clonable, since the serialization and deserialization in Worker is already a kind of clone mechanism. 
+            </summary>
+            <typeparam name="S">Type of the state data</typeparam>
+        </member>
+        <member name="T:Microsoft.Spark.CSharp.Streaming.MapWithStateRDDRecord`3">
+            <summary>
+            Record storing the keyed-state MapWithStateRDD. 
+            Each record contains a stateMap and a sequence of records returned by the mapping function of MapWithState.
+            Note: don't need to explicitly make this class clonable, since the serialization and deserialization in Worker is already a kind of clone. 
+            </summary>
+            <typeparam name="K">Type of the key</typeparam>
+            <typeparam name="S">Type of the state data</typeparam>
+            <typeparam name="M">Type of the mapped data</typeparam>
+        </member>
+        <member name="T:Microsoft.Spark.CSharp.Streaming.UpdateStateHelper`4">
+            <summary>
+            Helper class to update states for a RDD partition.
+            Reference: https://github.com/apache/spark/blob/master/streaming/src/main/scala/org/apache/spark/streaming/rdd/MapWithStateRDD.scala
+            </summary>
+            <typeparam name="K">Type of the key</typeparam>
+            <typeparam name="V">Type of the value</typeparam>
+            <typeparam name="S">Type of the state data</typeparam>
+            <typeparam name="M">Type of the mapped data</typeparam>
+        </member>
+        <member name="T:Microsoft.Spark.CSharp.Streaming.StateSpec`4">
+            <summary>
+            Representing all the specifications of the DStream transformation `mapWithState` operation.
+            </summary>
+            <typeparam name="K">Type of the key</typeparam>
+            <typeparam name="V">Type of the value</typeparam>
+            <typeparam name="S">Type of the state data</typeparam>
+            <typeparam name="M">Type of the mapped data</typeparam>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Streaming.StateSpec`4.#ctor(System.Func{`0,`1,Microsoft.Spark.CSharp.Streaming.State{`2},`3})">
+            <summary>
+            Create a StateSpec for setting all the specifications of the `mapWithState` operation on a pair DStream.
+            </summary>
+            <param name="mappingFunction">The function applied on every data item to manage the associated state and generate the mapped data</param>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Streaming.StateSpec`4.NumPartitions(System.Int32)">
+            <summary>
+            Set the number of partitions by which the state RDDs generated by `mapWithState` will be partitioned.
+            Hash partitioning will be used.
+            </summary>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Streaming.StateSpec`4.Timeout(System.TimeSpan)">
+            <summary>
+            Set the duration after which the state of an idle key will be removed. A key and its state is
+            considered idle if it has not received any data for at least the given duration. The
+            mapping function will be called one final time on the idle states that are going to be
+            removed; [[org.apache.spark.streaming.State State.isTimingOut()]] set to `true` in that call.
+            </summary>
+            <param name="ts"></param>
+            <returns></returns>
+        </member>
+        <member name="T:Microsoft.Spark.CSharp.Streaming.State`1">
+            <summary>
+            class for getting and updating the state in mapping function used in the `mapWithState` operation
+            </summary>
+            <typeparam name="S">Type of the state</typeparam>
+        </member>
         <member name="T:Microsoft.Spark.CSharp.Streaming.PairDStreamFunctions">
             <summary>
             operations only available to KeyValuePair RDD
@@ -4284,6 +4499,12 @@
             <param name="updateFunc">State update function - (pid, IEnumerable[K, [newValues, oldState]]) => IEnumerable[K, newState]</param>
             <param name="numPartitions"></param>
             <returns></returns>
+        </member>
+        <member name="M:Microsoft.Spark.CSharp.Streaming.PairDStreamFunctions.MapWithState``4(Microsoft.Spark.CSharp.Streaming.DStream{System.Collections.Generic.KeyValuePair{``0,``1}},Microsoft.Spark.CSharp.Streaming.StateSpec{``0,``1,``2,``3})">
+            <summary>
+            Return a new "state" DStream where the state for each key is updated by applying
+            the given function on the previous state of the key and the new values of the key.
+            </summary>
         </member>
         <member name="T:Microsoft.Spark.CSharp.Streaming.CombineByKeyHelper`3">
             <summary>
