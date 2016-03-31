@@ -47,7 +47,8 @@ namespace Microsoft.Spark.CSharp.Samples
                     (Configuration.SampleDataLocation.ToLower().StartsWith("hdfs://") ||
                      Configuration.SampleDataLocation.ToLower().StartsWith("webhdfs://")))
                 {
-                    FileSystemHelper = new HdfsFileSystemHelper();
+                    //var url = new Uri(Configuration.SampleDataLocation);
+                    FileSystemHelper = new HdfsFileSystemHelper(Configuration.SampleDataLocation);
                 }
                 else
                 {

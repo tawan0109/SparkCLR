@@ -4,6 +4,8 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Security.Policy;
+using System.Text;
 using Microsoft.Spark.CSharp.Interop.Ipc;
 using Microsoft.Spark.CSharp.Proxy.Ipc;
 
@@ -16,10 +18,23 @@ namespace Microsoft.Spark.CSharp.Utils
     {
         private readonly JvmObjectReference jvmHdfsReference;
 
-        public HdfsFileSystemHelper()
+        private readonly string schemaAndNameNode;
+
+        public HdfsFileSystemHelper(string dataLocation)
         {
+            if (dataLocation.ToLower().StartsWith("hdfs://") || dataLocation.ToLower().StartsWith("webhdfs://"))
+            {
+                var uri = new Uri(dataLocation);
+                this.schemaAndNameNode = uri.Scheme + "://" + uri.Host;
+                if (uri.Port > 0)
+                {
+                    this.schemaAndNameNode = this.schemaAndNameNode + ":" + uri.Port;
+                }
+            }
+
             var jvmConfReference = SparkCLRIpcProxy.JvmBridge.CallConstructor("org.apache.hadoop.conf.Configuration");
-            jvmHdfsReference = new JvmObjectReference((string) SparkCLRIpcProxy.JvmBridge.CallStaticJavaMethod("org.apache.hadoop.fs.FileSystem", "get", jvmConfReference));
+            var jvmUriReference = new JvmObjectReference((string)SparkCLRIpcProxy.JvmBridge.CallStaticJavaMethod("java.net.URI", "create", schemaAndNameNode));
+            jvmHdfsReference = new JvmObjectReference((string)SparkCLRIpcProxy.JvmBridge.CallStaticJavaMethod("org.apache.hadoop.fs.FileSystem", "get", jvmUriReference, jvmConfReference));
         }
 
         /// <summary>
@@ -50,7 +65,7 @@ namespace Microsoft.Spark.CSharp.Utils
         /// </summary>
         public string GetTempFileName()
         {
-            return "/tmp/" + Guid.NewGuid().ToString("N");
+            return GetTempPath() + Guid.NewGuid().ToString("N");
         }
 
         /// <summary>
@@ -58,7 +73,7 @@ namespace Microsoft.Spark.CSharp.Utils
         /// </summary>
         public string GetTempPath()
         {
-            return "/tmp/";
+            return schemaAndNameNode + "/tmp/";
         }
 
         /// <summary>
