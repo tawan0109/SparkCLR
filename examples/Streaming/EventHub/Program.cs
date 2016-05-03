@@ -11,7 +11,7 @@ namespace Microsoft.Spark.CSharp.Examples
 {
     /// <summary>
     /// Sample SparkCLR application that processes events from EventHub in the format [timestamp],[loglevel],[logmessage]
-    /// EventPublisher class may be used to publish sample events to consume
+    /// EventPublisher class may be used to publish sample events to EventHubs to consume in this app
     /// </summary>
     class SparkCLREventHubsExample
     {
@@ -29,30 +29,31 @@ namespace Microsoft.Spark.CSharp.Examples
                 {"eventhubs.checkpoint.dir", "<hdfs path to eventhub checkpoint dir>"},
                 {"eventhubs.checkpoint.interval", "<interval>"},
             };
-
+            const int windowDurationInSecs = 5;
+            const int slideDurationInSecs = 5;
             const string checkpointPath = "<hdfs path to spark checkpoint dir>";
             //const string outputPath = "<hdfs path to output dir>";
 
-            const long slideDuration = 5000;
+            const long slideDurationInMillis = 5000;
             StreamingContext sparkStreamingContext = StreamingContext.GetOrCreate(checkpointPath,
                 () =>
                 {
-                    var ssc = new StreamingContext(sparkContext, slideDuration);
+                    var ssc = new StreamingContext(sparkContext, slideDurationInMillis);
                     ssc.Checkpoint(checkpointPath);
 
                     var stream = EventHubsUtils.CreateUnionStream(ssc, eventhubsParams);
                     var countByLogLevelAndTime = stream
                                                     .Map(bytes => Encoding.UTF8.GetString(bytes))
-                                                    .Filter(s => s.Contains(","))
+                                                    .Filter(line => line.Contains(","))
                                                     .Map(line => line.Split(','))
                                                     .Map(columns => new KeyValuePair<string, int>(string.Format("{0},{1}", columns[0], columns[1]), 1))
-                                                    .ReduceByKeyAndWindow((x, y) => x + y, (x, y) => x - y, 5, 5, 3)
-                                                    .Map(kvp => string.Format("{0},{1}", kvp.Key, kvp.Value));
+                                                    .ReduceByKeyAndWindow((x, y) => x + y, (x, y) => x - y, windowDurationInSecs, slideDurationInSecs, 3)
+                                                    .Map(logLevelCountPair => string.Format("{0},{1}", logLevelCountPair.Key, logLevelCountPair.Value));
                     
-                    countByLogLevelAndTime.ForeachRDD(dimensionalCount =>
+                    countByLogLevelAndTime.ForeachRDD(countByLogLevel =>
                     {
                         //dimensionalCount.SaveAsTextFile(string.Format("{0}/{1}", outputPath, Guid.NewGuid()));
-                        var dimensionalCountCollection = dimensionalCount.Collect();
+                        var dimensionalCountCollection = countByLogLevel.Collect();
                         foreach (var dimensionalCountItem in dimensionalCountCollection)
                         {
                             Console.WriteLine(dimensionalCountItem);

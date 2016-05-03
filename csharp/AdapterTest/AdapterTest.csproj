@@ -115,6 +115,10 @@
       <Project>{ce999a96-f42b-4e80-b208-709d7f49a77c}</Project>
       <Name>Adapter</Name>
     </ProjectReference>
+    <ProjectReference Include="..\Tests.Common\Tests.Common.csproj">
+      <Project>{e4479c4c-e106-4b90-bf0c-319561cea9c4}</Project>
+      <Name>Tests.Common</Name>
+    </ProjectReference>
   </ItemGroup>
   <ItemGroup />
   <ItemGroup>
